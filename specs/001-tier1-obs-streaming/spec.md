@@ -90,11 +90,11 @@ As a system operator, I need real-time visibility into stream health metrics so 
 
 - **What happens when network connection to Twitch is lost?** System must detect connection loss within 15 seconds, maintain OBS running locally, and attempt reconnection every 10 seconds. When reconnected, verify stream key is still valid and resume broadcasting.
 
-- **What happens when owner sources become active but aren't ready/configured properly?** System detects source activation but if source is showing blank/black screen or has no audio for more than 30 seconds, system displays a "going live soon" transition scene. If sources don't become properly active within 30 seconds, resume automated content and log the issue.
+- **What happens when owner sources become active but aren't ready/configured properly?** System detects source activation but if source is showing blank/black screen (video luminance <10%) or has no audio (level <-40dB) for more than 30 seconds, system displays a "going live soon" transition scene. If sources don't become properly active within 30 seconds, resume automated content and log the issue.
 
 - **What happens when multiple content sources are configured for the same time block?** System follows priority order: Owner live > Scheduled premium content > Scheduled standard content > Failover content. Priority is determined by content metadata.
 
-- **What happens when the system clock is incorrect or timezone is misconfigured?** Time-based content selection should use UTC internally and convert to configured timezone for scheduling. Log warnings if system time differs from NTP time by more than 60 seconds.
+- **What happens when the system clock is incorrect or timezone is misconfigured?** Time-based content selection should use UTC internally and convert to configured timezone for scheduling. Log warnings if system time differs from NTP time by more than 60 seconds. System continues startup (does not block streaming), but schedule accuracy may be affected until clock synchronization resolves.
 
 - **What happens during daylight saving time transitions?** Schedule definitions use fixed UTC offsets or timezone-aware scheduling. Content blocks automatically adjust to maintain intended real-world time (e.g., "after school hours" remain 3-6 PM local time).
 
@@ -116,7 +116,7 @@ As a system operator, I need real-time visibility into stream health metrics so 
 - **FR-004**: System MUST NOT overwrite or modify existing scenes - scene creation is idempotent (checks existence before creating)
 - **FR-005**: System MUST switch between OBS scenes programmatically using scene names only, without dependency on specific scene content or layout
 - **FR-006**: System MUST control OBS media sources including play, pause, stop, and source switching operations
-- **FR-007**: System MUST verify OBS scene transitions complete successfully and log any transition failures
+- **FR-007**: System MUST verify OBS scene transitions complete successfully by confirming active scene matches target scene within transition duration (max 2 seconds) and no OBS error events logged, logging any transition failures
 - **FR-008**: System MUST query current OBS state including active scene, source status, and streaming status
 
 #### System Startup and Initialization
