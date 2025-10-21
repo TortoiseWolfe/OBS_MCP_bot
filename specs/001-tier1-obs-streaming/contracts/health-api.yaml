@@ -1,0 +1,466 @@
+openapi: 3.0.3
+info:
+  title: OBS Streaming Health API
+  description: |
+    Health monitoring API for Tier 1 OBS Streaming Foundation.
+    Provides queryable health status and historical uptime metrics per FR-023.
+
+    **Constitutional Alignment**:
+    - Principle I (Broadcast Continuity): Exposes uptime metrics for 99.9% validation
+    - Principle V (System Reliability): Enables operational debugging via health snapshots
+    - Tier 1 scope: Monitoring only, no web dashboard (deferred to Tier 4)
+  version: 1.0.0
+  contact:
+    name: OBS_24_7 Project
+    url: https://github.com/owner/obs-bot
+  license:
+    name: Open Source
+    url: https://github.com/owner/obs-bot/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: http://streaming-host:8000
+    description: Production streaming host
+
+paths:
+  /health:
+    get:
+      summary: Get current stream health snapshot
+      description: |
+        Returns real-time stream health status including:
+        - Streaming state (on/off)
+        - Current uptime
+        - Active scene and content
+        - Stream quality metrics
+        - Last failover event
+        - Owner live status
+
+        **Success Criteria Validation**:
+        - SC-001: Use `uptime_percentage` to verify 99.9% target
+        - SC-005: Use `dropped_frames_pct` to verify <1% requirement
+        - SC-003: Check `owner_live` status for transition validation
+      operationId: getHealth
+      tags:
+        - Health
+      parameters:
+        - name: include_history
+          in: query
+          description: Include recent health metrics history (last 100 data points)
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Health snapshot retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthSnapshot'
+              examples:
+                streaming_healthy:
+                  summary: Stream healthy, automated content playing
+                  value:
+                    streaming: true
+                    uptime_seconds: 604800
+                    uptime_percentage: 99.95
+                    current_scene: "Automated Content"
+                    current_content: "Python Tutorial - Functions.mp4"
+                    stream_quality:
+                      bitrate_kbps: 6000.0
+                      dropped_frames_pct: 0.3
+                      cpu_usage_pct: 45.2
+                      connection_status: "connected"
+                    owner_live: false
+                    last_failover:
+                      timestamp: "2025-10-19T14:23:10Z"
+                      failure_cause: "content_failure"
+                      recovery_time_sec: 4.1
+                    session_info:
+                      session_id: "550e8400-e29b-41d4-a716-446655440000"
+                      start_time: "2025-10-13T00:00:00Z"
+                      total_downtime_sec: 25
+                owner_live:
+                  summary: Owner currently live
+                  value:
+                    streaming: true
+                    uptime_seconds: 86400
+                    uptime_percentage: 100.0
+                    current_scene: "Owner Live"
+                    current_content: null
+                    stream_quality:
+                      bitrate_kbps: 6500.0
+                      dropped_frames_pct: 0.1
+                      cpu_usage_pct: 62.5
+                      connection_status: "connected"
+                    owner_live: true
+                    last_failover: null
+                    session_info:
+                      session_id: "123e4567-e89b-12d3-a456-426614174000"
+                      start_time: "2025-10-19T10:00:00Z"
+                      total_downtime_sec: 0
+        '503':
+          description: Stream offline or system not initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Stream offline"
+                details: "Pre-flight validation failed: OBS not reachable"
+                timestamp: "2025-10-20T10:30:15Z"
+
+  /health/metrics:
+    get:
+      summary: Get historical health metrics
+      description: |
+        Query historical health metrics for trend analysis and performance validation.
+
+        **Use Cases**:
+        - Validate SC-006: Content transition gap analysis (<2 seconds)
+        - Validate SC-008: Uptime accuracy verification (within 1 second)
+        - Debug performance degradation over time
+      operationId: getHealthMetrics
+      tags:
+        - Health
+      parameters:
+        - name: start_time
+          in: query
+          description: Start of time range (ISO 8601 UTC)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-19T00:00:00Z"
+        - name: end_time
+          in: query
+          description: End of time range (ISO 8601 UTC)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-20T00:00:00Z"
+        - name: limit
+          in: query
+          description: Maximum number of metrics to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HealthMetric'
+                  total_count:
+                    type: integer
+                    description: Total metrics matching query
+                  query:
+                    type: object
+                    properties:
+                      start_time:
+                        type: string
+                        format: date-time
+                      end_time:
+                        type: string
+                        format: date-time
+                      limit:
+                        type: integer
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /health/uptime:
+    get:
+      summary: Get uptime report for validation
+      description: |
+        Generate uptime report for constitutional compliance verification (SC-001).
+
+        Returns:
+        - Total uptime percentage over period
+        - Downtime events with causes
+        - Success criteria validation (99.9% target)
+      operationId: getUptimeReport
+      tags:
+        - Health
+      parameters:
+        - name: period_days
+          in: query
+          description: Number of days to analyze (default 7 for weekly SC-001 check)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 7
+      responses:
+        '200':
+          description: Uptime report generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeReport'
+              example:
+                period_days: 7
+                total_uptime_seconds: 604775
+                total_downtime_seconds: 25
+                uptime_percentage: 99.996
+                meets_sc001: true
+                downtime_events:
+                  - timestamp: "2025-10-19T14:23:05Z"
+                    duration_sec: 15
+                    failure_cause: "content_failure"
+                    recovery_action: "switched_to_failover_scene"
+                  - timestamp: "2025-10-17T03:15:00Z"
+                    duration_sec: 10
+                    failure_cause: "connection_lost"
+                    recovery_action: "automatic_reconnection"
+
+components:
+  schemas:
+    HealthSnapshot:
+      type: object
+      required:
+        - streaming
+        - uptime_seconds
+        - uptime_percentage
+        - current_scene
+        - stream_quality
+        - owner_live
+        - session_info
+      properties:
+        streaming:
+          type: boolean
+          description: Whether stream is currently live on Twitch
+        uptime_seconds:
+          type: integer
+          description: Seconds since current session started
+          minimum: 0
+        uptime_percentage:
+          type: number
+          format: float
+          description: Uptime percentage for current session (0-100)
+          minimum: 0
+          maximum: 100
+        current_scene:
+          type: string
+          description: Active OBS scene name
+          example: "Automated Content"
+        current_content:
+          type: string
+          nullable: true
+          description: Currently playing content source (if applicable)
+        stream_quality:
+          $ref: '#/components/schemas/StreamQuality'
+        owner_live:
+          type: boolean
+          description: Whether owner is currently broadcasting
+        last_failover:
+          $ref: '#/components/schemas/FailoverEvent'
+          nullable: true
+        session_info:
+          $ref: '#/components/schemas/SessionInfo'
+        history:
+          type: array
+          description: Recent health metrics (if include_history=true)
+          items:
+            $ref: '#/components/schemas/HealthMetric'
+
+    StreamQuality:
+      type: object
+      required:
+        - bitrate_kbps
+        - dropped_frames_pct
+        - cpu_usage_pct
+        - connection_status
+      properties:
+        bitrate_kbps:
+          type: number
+          format: float
+          description: Current bitrate in kilobits per second
+          minimum: 0
+        dropped_frames_pct:
+          type: number
+          format: float
+          description: Percentage of dropped frames (SC-005 target <1%)
+          minimum: 0
+          maximum: 100
+        cpu_usage_pct:
+          type: number
+          format: float
+          description: CPU usage percentage
+          minimum: 0
+          maximum: 100
+        connection_status:
+          type: string
+          enum: [connected, disconnected, degraded]
+          description: RTMP connection state to Twitch
+
+    FailoverEvent:
+      type: object
+      required:
+        - timestamp
+        - failure_cause
+        - recovery_time_sec
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: When failover occurred (ISO 8601 UTC)
+        failure_cause:
+          type: string
+          enum:
+            - connection_lost
+            - obs_crash
+            - content_failure
+            - network_degraded
+            - manual_stop
+          description: Type of failure that triggered failover
+        recovery_time_sec:
+          type: number
+          format: float
+          description: How long recovery took (SC-005 target <5 sec)
+          minimum: 0
+
+    SessionInfo:
+      type: object
+      required:
+        - session_id
+        - start_time
+        - total_downtime_sec
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: Unique identifier for current stream session
+        start_time:
+          type: string
+          format: date-time
+          description: When current session started (ISO 8601 UTC)
+        total_downtime_sec:
+          type: integer
+          description: Total downtime seconds in current session
+          minimum: 0
+
+    HealthMetric:
+      type: object
+      required:
+        - metric_id
+        - timestamp
+        - bitrate_kbps
+        - dropped_frames_pct
+        - cpu_usage_pct
+        - active_scene
+        - connection_status
+        - streaming_status
+      properties:
+        metric_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        bitrate_kbps:
+          type: number
+          format: float
+          minimum: 0
+        dropped_frames_pct:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        cpu_usage_pct:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        active_scene:
+          type: string
+        active_source:
+          type: string
+          nullable: true
+        connection_status:
+          type: string
+          enum: [connected, disconnected, degraded]
+        streaming_status:
+          type: string
+          enum: [streaming, stopped, starting, stopping]
+
+    UptimeReport:
+      type: object
+      required:
+        - period_days
+        - total_uptime_seconds
+        - total_downtime_seconds
+        - uptime_percentage
+        - meets_sc001
+        - downtime_events
+      properties:
+        period_days:
+          type: integer
+          description: Number of days analyzed
+        total_uptime_seconds:
+          type: integer
+          description: Total seconds stream was online
+        total_downtime_seconds:
+          type: integer
+          description: Total seconds stream was offline
+        uptime_percentage:
+          type: number
+          format: float
+          description: Uptime percentage (SC-001 target 99.9%)
+          minimum: 0
+          maximum: 100
+        meets_sc001:
+          type: boolean
+          description: Whether uptime meets 99.9% constitutional requirement
+        downtime_events:
+          type: array
+          description: List of downtime events during period
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              duration_sec:
+                type: number
+                format: float
+              failure_cause:
+                type: string
+              recovery_action:
+                type: string
+
+    Error:
+      type: object
+      required:
+        - error
+        - timestamp
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        details:
+          type: string
+          description: Additional error context
+        timestamp:
+          type: string
+          format: date-time
+          description: When error occurred (ISO 8601 UTC)
+
+tags:
+  - name: Health
+    description: Stream health monitoring and uptime reporting
