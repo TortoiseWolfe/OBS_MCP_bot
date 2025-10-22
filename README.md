@@ -111,26 +111,38 @@ curl http://localhost:8000/health | jq
 - Owner live broadcast takeover with <10s transitions
 - FastAPI health endpoints for operational visibility
 
-### Tier 2: Content Intelligence ⏳ PLANNED
+### Tier 2: Twitch Chat Bot ⏳ NEXT
+**Focus**: Viewer engagement and AI-powered interaction
+- IRC connection to Twitch chat (read/write messages)
+- Basic bot commands (!help, !uptime, !commands, !ask)
+- AI-powered responses using Claude API
+- Rate limiting and queue management (50-100 concurrent viewers)
+- Basic chat moderation (timeout handling, command cooldowns)
+- **Why Tier 2**: Standalone feature requiring no content library, immediate viewer value
+
+### Tier 3: Intelligent Content Management ⏳ PLANNED
 **Focus**: Smart content selection and scheduling
 - Time-based content blocks (kids hours, adult hours, late night)
 - Content metadata and age-appropriateness tagging
 - Priority-based content scheduling algorithm
-- Content verification and quality checks
+- Content library organization and indexing
+- Foundation for advanced AI features
 
-### Tier 3: AI Teaching Personality ⏳ PLANNED
-**Focus**: AI-generated educational hosting
-- Text-to-speech voice synthesis for narration
-- AI-generated explanatory content during transitions
-- Context-aware teaching commentary
-- Max Headroom-inspired digital personality
+### Tier 4: Advanced AI Co-Host ⏳ PLANNED
+**Focus**: Context-aware AI with vision and deep knowledge
+- Computer vision to see current stream content (screenshot OBS output)
+- RAG system with educational content index (built in Tier 3)
+- Context-aware chat responses referencing live content
+- TTS voice synthesis for AI narration and teaching
+- Solo teaching capability (autonomous 30+ minute sessions)
+- Max Headroom + Bob Ross personality blend
 
-### Tier 4: Supporting Infrastructure ⏳ PLANNED
+### Tier 5: Supporting Infrastructure ⏳ PLANNED
 **Focus**: Analytics, monitoring, and community
 - Web dashboard for stream analytics (Grafana/Prometheus)
 - Discord alerting and notifications
 - Advanced logging and decision tracking
-- Community engagement features
+- VOD/clip generation and archival
 
 ## User Stories (Tier 1)
 

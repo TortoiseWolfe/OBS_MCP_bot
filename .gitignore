@@ -37,7 +37,8 @@ logs/*.log
 content/*.mp4
 content/**/*.mp4
 
-# SpecKit
+# SpecKit (ignore tooling, track constitution)
 .speckit/
-.specify/
+.specify/templates/
+.specify/scripts/
 .claude/
