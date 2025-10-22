@@ -90,6 +90,44 @@ If you want more control:
    └── general/              # CS fundamentals
    ```
 
+## Advanced: Cross Time-Block Content with Symlinks
+
+Some videos are appropriate for multiple time blocks (e.g., a Python fundamentals course suitable for both "general" and "professional-hours"). Use symlinks to avoid duplicating large video files:
+
+### Create Symlinks
+
+```bash
+cd /home/turtle_wolfe/repos/OBS_bot/content
+
+# Example: Make MIT OCW available in both general/ and professional-hours/
+ln -s ../general/mit-ocw-6.0001 professional-hours/mit-ocw-6.0001
+
+# Example: Make a specific video available in multiple blocks
+ln -s ../general/harvard-cs50/00-Lecture_0-Scratch.mp4 kids-after-school/scratch-intro.mp4
+```
+
+### Benefits
+
+- **Disk Space**: No file duplication (symlink = 0 bytes)
+- **Consistency**: Updates to original automatically apply to all links
+- **Flexibility**: Same content available in multiple time blocks
+
+### Limitations
+
+- OBS must be able to follow symlinks (works on WSL2 UNC paths: `//wsl.localhost/...`)
+- Metadata scanner will detect symlinked videos as separate entries
+- Deleting the original file breaks all symlinks
+
+### Verify Symlinks
+
+```bash
+# List symlinks in a directory
+ls -lh /home/turtle_wolfe/repos/OBS_bot/content/professional-hours/
+
+# Output shows -> indicating symlink target:
+# lrwxrwxrwx 1 user user 24 Oct 22 12:00 mit-ocw-6.0001 -> ../general/mit-ocw-6.0001
+```
+
 ## Generate Content Metadata
 
 After downloading, scan the content directory and generate metadata:

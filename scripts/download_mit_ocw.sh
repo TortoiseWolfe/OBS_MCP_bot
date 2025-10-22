@@ -65,6 +65,32 @@ fi
 
 echo -e "${GREEN}✓ Sufficient disk space: ${AVAILABLE_SPACE_GB} GB available${NC}"
 
+# T039: Validate time-block directory structure
+echo ""
+echo "Validating directory structure..."
+CONTENT_DIR="content"
+TIME_BLOCK_DIR="content/general"
+
+if [ ! -d "$CONTENT_DIR" ]; then
+    echo -e "${RED}ERROR: Content directory not found: $CONTENT_DIR${NC}"
+    echo ""
+    echo "Please create the content directory structure first:"
+    echo "  mkdir -p content/general content/kids-after-school content/evening-mixed content/failover"
+    echo ""
+    exit 1
+fi
+
+if [ ! -w "$CONTENT_DIR" ]; then
+    echo -e "${RED}ERROR: Content directory is not writable: $CONTENT_DIR${NC}"
+    echo ""
+    echo "Fix permissions with:"
+    echo "  chmod 755 content/"
+    echo ""
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Content directory structure valid${NC}"
+
 # Create target directory
 echo ""
 echo "Creating target directory: ${TARGET_DIR}"

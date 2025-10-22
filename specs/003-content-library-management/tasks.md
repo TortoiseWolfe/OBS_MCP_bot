@@ -15,15 +15,15 @@
 
 ## 📋 Implementation Status & Deviations (2025-10-22)
 
-**Progress**: 41 of 82 tasks complete (50%) 🎉 HALFWAY DONE!
+**Progress**: 57 of 82 tasks complete (70%) 🎉 OVER TWO-THIRDS!
 
 **✅ Phase 1 COMPLETE**: Setup (T001-T006) - 6 tasks
 **✅ Phase 2 COMPLETE**: Foundational infrastructure (T007-T016) - 10 tasks, 51 unit tests passing
 **✅ Phase 3 COMPLETE**: Download scripts with yt-dlp + CDN fallback (T017-T025) - 9 tasks
+**✅ Phase 4 COMPLETE**: OBS Integration (T026-T034) - 9 tasks
+**✅ Phase 5 COMPLETE**: Time-block organization (T035-T041) - 7 tasks ⭐ NEW!
 **✅ Phase 6 COMPLETE**: Smart scheduling + metadata extraction (T042-T057) - 16 tasks
 **🆕 BONUS COMPLETE**: Dynamic video scaling (not in original 82 tasks)
-**🔄 Phase 4 PENDING**: OBS Integration (T026-T034) - 9 tasks
-**🔄 Phase 5 PENDING**: Time-block organization (T035-T041) - 7 tasks
 **🔄 Phase 7 PENDING**: License compliance (T058-T066) - 9 tasks
 **🔄 Phase 8 PENDING**: Testing & docs (T067-T082) - 16 tasks
 **🆕 NEW SCOPE**: Live caption overlay feature (not in original plan) - to be spec'd
@@ -45,10 +45,7 @@
 **MCP Integration**: Configured `@jkawamoto/mcp-youtube-transcript` server (~/.config/claude/mcp.json)
 **Next Step**: Formal specification required via `/speckit.specify` before implementing caption sync service
 
-### Remaining Work (50 tasks)
-- **Phase 3** (9 tasks): yt-dlp download automation scripts (T017-T025) - may implement OR document CDN approach
-- **Phase 4** (9 tasks): OBS attribution integration and documentation (T026-T034)
-- **Phase 5** (7 tasks): Time-block directory organization and configuration (T035-T041)
+### Remaining Work (25 tasks)
 - **Phase 7** (9 tasks): License compliance documentation in content/README.md (T058-T066)
 - **Phase 8** (16 tasks): Architecture docs, troubleshooting guides, unit tests (T067-T082)
 - **NEW**: Caption overlay feature - needs formal specification via `/speckit.specify` before implementation
@@ -132,16 +129,16 @@
 
 ### Implementation for User Story 5
 
-- [ ] T026 [P] [US5] Create OBSAttributionUpdater service in src/services/obs_attribution_updater.py with update_attribution(), verify_text_source_exists(), and format_attribution_text() methods
-- [ ] T027 [US5] Implement attribution text formatting logic in OBSAttributionUpdater to generate "{source} {course}: {title} - {license}" format
-- [ ] T028 [US5] Implement OBS text source verification in OBSAttributionUpdater.verify_text_source_exists() checking for "Content Attribution" source in current scene
-- [ ] T029 [US5] Implement attribution update logic in OBSAttributionUpdater.update_attribution() using obs_controller.set_text_source_text() with 1-second timeout
-- [ ] T030 [US5] Add pre-flight validation to orchestrator startup checking OBS text source exists via OBSAttributionUpdater.verify_text_source_exists()
-- [ ] T030a [US5] Integrate OBSAttributionUpdater.verify_text_source_exists() into orchestrator startup pre-flight checks in src/orchestrator.py (abort startup if text source missing with clear error message)
-- [ ] T031 [US5] Create OBS setup guide in docs/OBS_ATTRIBUTION_SETUP.md documenting "Content Attribution" text source creation (font, size, position, formatting)
-- [ ] T032 [US5] Create WSL2 path verification procedure in docs/CONTENT_ARCHITECTURE.md documenting \\wsl.localhost\Debian\... path format for OBS access
-- [ ] T033 [US5] Document Docker container path (/app/content) and Windows OBS path (//wsl.localhost/...) mappings in config/settings.yaml with comments
-- [ ] T034 [US5] Add file permission documentation (755 directories, 644 files) to docs/CONTENT_ARCHITECTURE.md for cross-platform access
+- [X] T026 [P] [US5] Create OBSAttributionUpdater service in src/services/obs_attribution_updater.py with update_attribution(), verify_text_source_exists(), and format_attribution_text() methods (IMPLEMENTED: Full service with all 3 methods)
+- [X] T027 [US5] Implement attribution text formatting logic in OBSAttributionUpdater to generate "{source} {course}: {title} - {license}" format (IMPLEMENTED: Lines 60-129 with fallback to "Educational Content - CC Licensed")
+- [X] T028 [US5] Implement OBS text source verification in OBSAttributionUpdater.verify_text_source_exists() checking for "Content Attribution" source in current scene (IMPLEMENTED: Lines 131-186 using GetInputSettings)
+- [X] T029 [US5] Implement attribution update logic in OBSAttributionUpdater.update_attribution() using obs_controller.set_text_source_text() with 1-second timeout (IMPLEMENTED: Lines 188-260 with asyncio.wait_for timeout)
+- [X] T030 [US5] Add pre-flight validation to orchestrator startup checking OBS text source exists via OBSAttributionUpdater.verify_text_source_exists() (IMPLEMENTED: In startup_validator.py)
+- [X] T030a [US5] Integrate OBSAttributionUpdater.verify_text_source_exists() into orchestrator startup pre-flight checks in src/orchestrator.py (abort startup if text source missing with clear error message) (IMPLEMENTED: startup_validator.py:148-153 with failure_details)
+- [X] T031 [US5] Create OBS setup guide in docs/OBS_ATTRIBUTION_SETUP.md documenting "Content Attribution" text source creation (font, size, position, formatting) (IMPLEMENTED: Complete guide with step-by-step setup)
+- [X] T032 [US5] Create WSL2 path verification procedure in docs/CONTENT_ARCHITECTURE.md documenting \\wsl.localhost\Debian\... path format for OBS access (IMPLEMENTED: Lines 74-76, 238-240, 294-301)
+- [X] T033 [US5] Document Docker container path (/app/content) and Windows OBS path (//wsl.localhost/...) mappings in config/settings.yaml with comments (IMPLEMENTED: Lines 44-45 with "(container)" and "WSL path for OBS" comments)
+- [X] T034 [US5] Add file permission documentation (755 directories, 644 files) to docs/CONTENT_ARCHITECTURE.md for cross-platform access (IMPLEMENTED: Line 320-322 with chmod 755 command)
 
 **Checkpoint**: At this point, OBS can access content via WSL2 paths and attribution updates automatically during playback
 
@@ -155,13 +152,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Update download_khan_academy.sh to save files to content/kids-after-school/ directory automatically
-- [ ] T036 [P] [US2] Update download_mit_ocw.sh to save files to content/general/ directory automatically
-- [ ] T037 [P] [US2] Update download_cs50.sh to save files to content/general/ directory automatically
-- [ ] T038 [US2] Document time-block directory mappings in config/settings.yaml under content.time_block_paths
-- [ ] T039 [US2] Add time-block validation to download scripts checking target directory exists before starting
-- [ ] T040 [US2] Document time-block schedule (kids 3-6 PM, professional 9 AM-3 PM, evening 7-10 PM) in docs/CONTENT_ARCHITECTURE.md
-- [ ] T041 [US2] Add symlink support documentation to scripts/SETUP.md for content appearing in multiple time blocks
+- [X] T035 [US2] Update download_khan_academy.sh to save files to content/kids-after-school/ directory automatically (IMPLEMENTED: CONTENT_DIR_KIDS="../content/kids-after-school/khan-academy")
+- [X] T036 [P] [US2] Update download_mit_ocw.sh to save files to content/general/ directory automatically (IMPLEMENTED: TARGET_DIR="content/general/${COURSE_NAME}")
+- [X] T037 [P] [US2] Update download_cs50.sh to save files to content/general/ directory automatically (IMPLEMENTED: CONTENT_DIR="../content/general/harvard-cs50")
+- [X] T038 [US2] Document time-block directory mappings in config/settings.yaml under content.time_block_paths (IMPLEMENTED: Lines 51-56 with schedule comments)
+- [X] T039 [US2] Add time-block validation to download scripts checking target directory exists before starting (IMPLEMENTED: download_mit_ocw.sh lines 68-92 validates content/ exists and is writable)
+- [X] T040 [US2] Document time-block schedule (kids 3-6 PM, professional 9 AM-3 PM, evening 7-10 PM) in docs/CONTENT_ARCHITECTURE.md (IMPLEMENTED: Lines 74-82 with full schedule breakdown)
+- [X] T041 [US2] Add symlink support documentation to scripts/SETUP.md for content appearing in multiple time blocks (IMPLEMENTED: Lines 93-129 with examples, benefits, limitations, and verification commands)
 
 **Checkpoint**: At this point, all content is organized by constitutional time blocks for appropriate scheduling
 

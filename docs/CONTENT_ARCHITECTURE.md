@@ -63,9 +63,23 @@ Understanding where content files exist vs. where code runs is critical for this
 ├── kids-after-school/
 │   └── khan-academy/
 │       └── ...
+├── professional-hours/
+│   └── (advanced content)
+├── evening-mixed/
+│   └── (algorithms, problem solving)
 └── failover/
     └── default_failover.mp4
 ```
+
+**Time-Block Schedule** (Constitutional requirement for age-appropriate content):
+
+- **kids-after-school/**: **3-6 PM weekdays** - Creative coding, beginner-friendly content (Khan Academy, Scratch)
+- **professional-hours/**: **9 AM-3 PM weekdays** - Advanced CS, development workflows, professional tools
+- **evening-mixed/**: **7-10 PM daily** - Algorithms, problem-solving, general computer science
+- **general/**: **All times** - Age-appropriate foundational content (MIT OCW, CS50)
+- **failover/**: **Emergency use only** - Default content when no suitable videos available
+
+See `config/settings.yaml` for full time-block configuration.
 
 **Accessed By**:
 
