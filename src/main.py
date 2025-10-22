@@ -35,6 +35,7 @@ from src.config.logging import configure_logging, get_logger
 from src.config.settings import get_settings
 from src.models.init_state import OverallStatus
 from src.persistence.db import Database
+from src.persistence.repositories.content_library import ContentSourceRepository
 from src.persistence.repositories.events import EventsRepository
 from src.persistence.repositories.metrics import MetricsRepository
 from src.persistence.repositories.sessions import SessionsRepository
@@ -74,6 +75,7 @@ class Application:
         self.sessions_repo: SessionsRepository | None = None
         self.events_repo: EventsRepository | None = None
         self.metrics_repo: MetricsRepository | None = None
+        self.content_source_repo: ContentSourceRepository | None = None
         # US2 - Owner Live Broadcast Takeover
         self.owner_sessions_repo: "OwnerSessionsRepository | None" = None
         self.owner_detector: "OwnerDetector | None" = None
@@ -111,6 +113,7 @@ class Application:
             self.sessions_repo = SessionsRepository(str(Path("data") / "obs_bot.db"))
             self.events_repo = EventsRepository(str(Path("data") / "obs_bot.db"))
             self.metrics_repo = MetricsRepository(str(Path("data") / "obs_bot.db"))
+            self.content_source_repo = ContentSourceRepository(str(Path("data") / "obs_bot.db"))
             logger.info("repositories_initialized")
 
             # Initialize US2 repositories if available
@@ -143,6 +146,7 @@ class Application:
                 self.settings,
                 self.obs_controller,
                 failover_manager=self.failover_manager,
+                content_source_repo=self.content_source_repo,  # Tier 3: Enable smart scheduling
             )
 
             # Initialize StreamManager with US2 support

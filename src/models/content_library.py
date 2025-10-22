@@ -96,6 +96,8 @@ class ContentSource(BaseModel):
     windows_obs_path: str = Field(description="Windows UNC path for OBS (\\\\wsl.localhost\\Debian\\...)")
     duration_sec: int = Field(ge=0, description="Video duration in seconds")
     file_size_mb: float = Field(gt=0, description="File size in megabytes")
+    width: int = Field(gt=0, description="Video width in pixels")
+    height: int = Field(gt=0, description="Video height in pixels")
     source_attribution: SourceAttribution = Field(description="Content source")
     license_type: str = Field(description="CC license type (FK to license_info.license_type)", max_length=50)
     course_name: str = Field(description="Course name (e.g., '6.0001 Intro to CS')", min_length=1, max_length=255)
@@ -120,9 +122,14 @@ class ContentSource(BaseModel):
     @field_validator("file_path")
     @classmethod
     def validate_file_path(cls, v: str) -> str:
-        """Ensure file path is absolute and within content directory."""
-        if not v.startswith("/home/turtle_wolfe/repos/OBS_bot/content/"):
-            raise ValueError("file_path must be within /home/turtle_wolfe/repos/OBS_bot/content/")
+        """Ensure file path is absolute and within a content directory."""
+        # Accept both host path (/home/.../content/) and container path (/app/content/)
+        valid_prefixes = [
+            "/home/turtle_wolfe/repos/OBS_bot/content/",
+            "/app/content/",
+        ]
+        if not any(v.startswith(prefix) for prefix in valid_prefixes):
+            raise ValueError(f"file_path must start with one of: {valid_prefixes}")
         return v
 
     class Config:
@@ -210,5 +217,43 @@ class DownloadJob(BaseModel):
                 "completed_at": "2025-10-22T09:30:00Z",
                 "videos_downloaded": 12,
                 "total_size_mb": 5400.0
+            }
+        }
+
+
+class VideoCaption(BaseModel):
+    """Video caption/transcript entry with timing information.
+
+    Entity 9: Synchronized captions for live playback overlay (Tier 3+).
+    Supports multiple languages and sub-second timing accuracy.
+    """
+
+    caption_id: str = Field(description="Unique caption entry ID (UUID)")
+    content_source_id: str = Field(description="Foreign key to ContentSource")
+    language_code: str = Field(default="en", description="ISO 639-1 language code")
+    start_time_sec: float = Field(ge=0.0, description="Caption start time in seconds")
+    end_time_sec: float = Field(gt=0.0, description="Caption end time in seconds")
+    text: str = Field(min_length=1, description="Caption text content")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Caption creation time")
+
+    @field_validator("end_time_sec")
+    @classmethod
+    def validate_end_after_start(cls, v: float, info) -> float:
+        """Ensure end time is after start time."""
+        if "start_time_sec" in info.data and v <= info.data["start_time_sec"]:
+            raise ValueError("end_time_sec must be greater than start_time_sec")
+        return v
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "caption_id": "990e8400-e29b-41d4-a716-446655440030",
+                "content_source_id": "770e8400-e29b-41d4-a716-446655440010",
+                "language_code": "en",
+                "start_time_sec": 12.5,
+                "end_time_sec": 15.8,
+                "text": "In computer science, we use algorithms to solve problems.",
+                "created_at": "2025-10-22T10:00:00Z"
             }
         }

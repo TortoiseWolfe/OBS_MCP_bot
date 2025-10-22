@@ -193,10 +193,10 @@ class ContentSourceRepository:
                 """
                 INSERT INTO content_sources (
                     source_id, title, file_path, windows_obs_path, duration_sec,
-                    file_size_mb, source_attribution, license_type, course_name,
+                    file_size_mb, width, height, source_attribution, license_type, course_name,
                     source_url, attribution_text, age_rating, time_blocks,
                     priority, tags, last_verified
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(content_source.source_id),
@@ -205,6 +205,8 @@ class ContentSourceRepository:
                     content_source.windows_obs_path,
                     content_source.duration_sec,
                     content_source.file_size_mb,
+                    content_source.width,
+                    content_source.height,
                     content_source.source_attribution.value,
                     content_source.license_type,
                     content_source.course_name,
@@ -424,6 +426,8 @@ class ContentSourceRepository:
             windows_obs_path=row["windows_obs_path"],
             duration_sec=row["duration_sec"],
             file_size_mb=row["file_size_mb"],
+            width=row["width"],
+            height=row["height"],
             source_attribution=SourceAttribution(row["source_attribution"]),
             license_type=row["license_type"],
             course_name=row["course_name"],

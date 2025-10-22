@@ -17,6 +17,7 @@ from src.config.logging import get_logger
 from src.config.settings import Settings
 from src.models.init_state import OverallStatus, SystemInitializationState
 from src.services.obs_controller import OBSConnectionError, OBSController
+from src.services.obs_attribution_updater import OBSAttributionUpdater
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,8 @@ class StartupValidator:
         self.settings = settings
         self.obs = obs_controller
         self.retry_interval_sec = 60
+        # Initialize attribution updater for Tier 3 text source validation
+        self.attribution_updater = OBSAttributionUpdater(obs_controller)
 
     async def validate(self, create_missing_scenes: bool = True) -> SystemInitializationState:
         """Run all pre-flight validation checks.
@@ -64,6 +67,7 @@ class StartupValidator:
             "failover_content_available": False,
             "twitch_credentials_configured": False,
             "network_connectivity": False,
+            "attribution_text_source_exists": False,  # Tier 3: Content library attribution
         }
         failure_details: Dict[str, str] = {}
 
@@ -137,6 +141,25 @@ class StartupValidator:
         #     validation_results["network_connectivity"] = False
         #     failure_details["network"] = str(e)
         #     logger.error("preflight_check_failed", check="network_connectivity", error=str(e))
+
+        # Check 6: Attribution text source exists (Tier 3: Content Library Management)
+        if validation_results["obs_connectivity"] and validation_results["scenes_exist"]:
+            try:
+                text_source_exists = await self.attribution_updater.verify_text_source_exists()
+                validation_results["attribution_text_source_exists"] = text_source_exists
+                if text_source_exists:
+                    logger.info("preflight_check_passed", check="attribution_text_source")
+                else:
+                    failure_details["attribution_text_source"] = f"Text source '{self.attribution_updater.text_source_name}' not found in OBS"
+                    logger.warning("preflight_check_failed", check="attribution_text_source")
+            except Exception as e:
+                validation_results["attribution_text_source_exists"] = False
+                failure_details["attribution_text_source"] = str(e)
+                logger.error("preflight_check_failed", check="attribution_text_source", error=str(e))
+        else:
+            # Skip check if OBS not connected or scenes don't exist
+            validation_results["attribution_text_source_exists"] = True  # Don't block startup
+            logger.debug("attribution_text_source_check_skipped", reason="obs_not_ready")
 
         # Determine overall status
         all_passed = all(validation_results.values())
@@ -599,6 +622,16 @@ class StartupValidator:
                 "      nc -zv live-video.twitch.tv 1935\n"
                 "   3. Check firewall allows outbound RTMP (port 1935)\n"
                 "   4. For Docker: Ensure container has network access"
+            ),
+            "attribution_text_source_exists": (
+                "1. OBS must be running with WebSocket enabled (see obs_connectivity)\n"
+                "   2. Manually create text source in OBS:\n"
+                "      - Right-click in any scene → Add → Text (FreeType 2)\n"
+                "      - Name it exactly: 'Content Attribution'\n"
+                "      - Set font size to 24-32 for visibility\n"
+                "      - Position at bottom-left or bottom-right of screen\n"
+                "   3. See docs/OBS_ATTRIBUTION_SETUP.md for detailed setup guide\n"
+                "   4. This is required for CC license compliance (Tier 3)"
             ),
         }
         return resolutions.get(check_name, "No resolution steps available")

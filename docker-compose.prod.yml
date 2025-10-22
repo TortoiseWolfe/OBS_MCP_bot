@@ -1,0 +1,90 @@
+services:
+  # SpecKit planning service (existing)
+  speckit:
+    image: python:3.12-slim
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      - UV_TOOL_DIR=/workspace/.speckit
+      - UV_TOOL_BIN_DIR=/workspace/.speckit/bin
+      - PATH=/workspace/.speckit/bin:/usr/local/bin:/usr/bin:/bin
+
+  # OBS Orchestrator production service
+  obs-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obs_bot_orchestrator
+    restart: unless-stopped
+
+    volumes:
+      # Content library (TEMPORARY: writable for downloads)
+      - ./content:/app/content:rw
+
+      # Persistent data (database, state)
+      - ./data:/app/data
+
+      # Logs
+      - ./logs:/app/logs
+
+      # Configuration
+      - ./config:/app/config:ro
+
+    # Network mode: host (allows connection to OBS WebSocket on host)
+    network_mode: host
+
+    environment:
+      # OBS WebSocket connection
+      - OBS_BOT_OBS__WEBSOCKET_URL=${OBS_BOT_OBS__WEBSOCKET_URL}
+      - OBS_WEBSOCKET_PASSWORD=${OBS_WEBSOCKET_PASSWORD}
+
+      # Twitch credentials
+      - TWITCH_STREAM_KEY=${TWITCH_STREAM_KEY}
+
+      # Discord alerting (optional)
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+
+      # Python environment
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 500M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Health API (optional standalone service for monitoring)
+  # Uncomment if you want health API separate from orchestrator
+  # health-api:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: obs_bot_health_api
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   command: ["python", "-m", "src.api.health"]
+  #   volumes:
+  #     - ./data:/app/data:ro
+  #   environment:
+  #     - PYTHONPATH=/app

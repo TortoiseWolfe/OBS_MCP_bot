@@ -13,15 +13,18 @@ Build a reliable 24/7 streaming infrastructure that controls OBS Studio programm
 ## Development Status
 
 ✅ **Tier 1 COMPLETE** - 24/7 Streaming Foundation Live
-⏳ **Tier 3 IN PROGRESS** - Content Library Management (Phase 2 Foundational Complete)
+🚧 **Tier 3 IN PROGRESS** - Content Library Management (Smart Scheduling + Dynamic Video Scaling Complete)
 
-**Current Phase**: Tier 3 Phase 2 (Foundational) complete - 51 unit tests passing (100%)
+**Current Phase**: Tier 3 Phase 3 (Partial) - Smart scheduling ✅, Dynamic video scaling ✅, 19 videos playable
 
 - ✅ Tier 1: OBS Streaming Foundation (COMPLETE - 2025-10-22) - 41 tests passing
-- ⏳ Tier 2: Twitch Chat Bot (PLANNED)
-- 🚧 Tier 3: Content Library Management (IN PROGRESS - Phase 2 Complete 2025-10-22)
+- ⏳ Tier 2: Twitch Chat Bot (PLANNED - Recommended next phase)
+- 🚧 Tier 3: Content Library Management (IN PROGRESS - Phase 2-3 Major Features Complete)
   - ✅ Phase 2: Database schema, models, repositories, OBS text overlays - 51 tests passing
-  - ⏳ Phase 3-8: Download scripts, metadata extraction, scheduling integration
+  - ✅ Phase 3: Smart content scheduling with time blocks and age filtering
+  - ✅ Phase 3: Dynamic video scaling with aspect-ratio preservation (NEW - 2025-10-22)
+  - ✅ Phase 3: Metadata extraction for 19 videos (MIT OCW + CS50 + Blender)
+  - ⏳ Phase 3+: Caption overlays (optional), additional content downloads
 - ⏳ Tier 4: Advanced AI Co-Host (PLANNED)
 - ⏳ Tier 5: Supporting Infrastructure (PLANNED)
 
@@ -132,12 +135,13 @@ curl http://localhost:8000/health | jq
   - Repository layer with CRUD operations (95% coverage)
   - OBS text source control for attribution overlays
   - CC license seed data (MIT OCW, CS50, Khan Academy, Blender)
-- ⏳ **Phase 3-8**: Download scripts, metadata extraction, scheduling integration
-  - yt-dlp download scripts for educational content sources
-  - ffprobe metadata extraction and validation
-  - Time-based content blocks and age-appropriateness filtering
-  - Priority-based content scheduling algorithm
-  - WSL2 path mapping for Windows OBS access
+- ✅ **Phase 3 Major Features Complete** (2025-10-22):
+  - **Smart Content Scheduling**: Time-based content blocks (kids 3-6 PM, professional 9 AM-3 PM, evening 7-10 PM), age-appropriateness filtering, priority-based selection
+  - **Dynamic Video Scaling**: Automatic aspect-ratio-preserving scaling to fit OBS canvas (1920x1080), supports multiple resolutions (480x360 → 3.0x scale, 1280x720 → 1.5x scale)
+  - **Metadata Extraction**: ffprobe integration for duration, file size, and video resolution extraction
+  - **19 Videos Ready**: MIT OCW (12 lectures), CS50 (6 lectures), Big Buck Bunny (failover)
+  - WSL2 → Windows UNC path mapping for OBS access
+- ⏳ **Phase 3+ Optional**: Caption overlays (schema ready, MCP configured), additional content downloads
 
 ### Tier 4: Advanced AI Co-Host ⏳ PLANNED
 **Focus**: Context-aware AI with vision and deep knowledge
@@ -362,7 +366,7 @@ See [Quickstart Guide](specs/001-tier1-obs-streaming/quickstart.md) for complete
 
 ---
 
-**Version**: 1.0.0 (Tier 1 Planning Complete)
-**Last Updated**: 2025-10-21
+**Version**: 1.1.0 (Tier 1 Complete + Tier 3 Phase 3 Major Features Complete)
+**Last Updated**: 2025-10-22
 **Maintainer**: [Channel Owner]
 **Framework**: SpecKit by GitHub + PRP (Product Requirements Prompt) by Rasmus Widing

@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS content_sources (
     windows_obs_path TEXT NOT NULL,
     duration_sec INTEGER NOT NULL CHECK(duration_sec >= 0),
     file_size_mb REAL NOT NULL CHECK(file_size_mb > 0),
+    width INTEGER NOT NULL CHECK(width > 0),
+    height INTEGER NOT NULL CHECK(height > 0),
     source_attribution TEXT NOT NULL CHECK(source_attribution IN ('MIT_OCW', 'CS50', 'KHAN_ACADEMY', 'BLENDER')),
     license_type TEXT NOT NULL,
     course_name TEXT NOT NULL,
@@ -171,6 +173,22 @@ CREATE TABLE IF NOT EXISTS download_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_download_jobs_source ON download_jobs(source_name);
+
+
+-- 9. VideoCaption: Synchronized captions/transcripts for content (Tier 3+)
+CREATE TABLE IF NOT EXISTS video_captions (
+    caption_id TEXT PRIMARY KEY,
+    content_source_id TEXT NOT NULL,
+    language_code TEXT NOT NULL DEFAULT 'en',
+    start_time_sec REAL NOT NULL CHECK(start_time_sec >= 0),
+    end_time_sec REAL NOT NULL CHECK(end_time_sec > start_time_sec),
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (content_source_id) REFERENCES content_sources(source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_captions_source_time ON video_captions(content_source_id, start_time_sec);
+CREATE INDEX IF NOT EXISTS idx_captions_language ON video_captions(language_code);
 
 
 -- Seed Data: License information for CC-licensed content sources (Tier 3)

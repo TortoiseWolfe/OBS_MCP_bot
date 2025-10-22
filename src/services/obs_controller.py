@@ -678,6 +678,78 @@ class OBSController:
                 f"Failed to set transform for source '{source_name}': {e}"
             ) from e
 
+    async def get_canvas_resolution(self) -> tuple[int, int]:
+        """Get OBS canvas (base) resolution.
+
+        Returns:
+            Tuple of (width, height) in pixels
+
+        Raises:
+            OBSConnectionError: If query fails
+        """
+        ws = self._ensure_connected()
+
+        try:
+            video_settings = ws.call(obs_requests.GetVideoSettings())
+            width = video_settings.getBaseWidth()
+            height = video_settings.getBaseHeight()
+
+            logger.debug(
+                "canvas_resolution_queried",
+                width=width,
+                height=height
+            )
+
+            return (width, height)
+
+        except (MessageTimeout, Exception) as e:
+            logger.error("get_canvas_resolution_failed", error=str(e))
+            raise OBSConnectionError(f"Failed to get canvas resolution: {e}") from e
+
+    def calculate_video_transform(
+        self,
+        video_width: int,
+        video_height: int,
+        canvas_width: int,
+        canvas_height: int
+    ) -> tuple[int, int, float, float]:
+        """Calculate optimal transform to fit video in canvas while maintaining aspect ratio.
+
+        Args:
+            video_width: Video width in pixels
+            video_height: Video height in pixels
+            canvas_width: Canvas width in pixels
+            canvas_height: Canvas height in pixels
+
+        Returns:
+            Tuple of (x_position, y_position, x_scale, y_scale)
+        """
+        # Calculate scale factor to fit video in canvas (maintain aspect ratio)
+        scale_x_factor = canvas_width / video_width
+        scale_y_factor = canvas_height / video_height
+
+        # Use the smaller scale to ensure video fits entirely in canvas
+        scale_factor = min(scale_x_factor, scale_y_factor)
+
+        # Calculate scaled video dimensions
+        scaled_width = video_width * scale_factor
+        scaled_height = video_height * scale_factor
+
+        # Center the video in the canvas
+        x_position = int((canvas_width - scaled_width) / 2)
+        y_position = int((canvas_height - scaled_height) / 2)
+
+        logger.debug(
+            "video_transform_calculated",
+            video_resolution=f"{video_width}x{video_height}",
+            canvas_resolution=f"{canvas_width}x{canvas_height}",
+            scale_factor=round(scale_factor, 3),
+            position=f"({x_position}, {y_position})",
+            scaled_size=f"{int(scaled_width)}x{int(scaled_height)}"
+        )
+
+        return (x_position, y_position, scale_factor, scale_factor)
+
     def _ensure_connected(self) -> obsws:
         """Verify connection to OBS is active.
 
