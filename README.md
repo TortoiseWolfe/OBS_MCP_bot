@@ -13,13 +13,17 @@ Build a reliable 24/7 streaming infrastructure that controls OBS Studio programm
 ## Development Status
 
 ✅ **Tier 1 COMPLETE** - 24/7 Streaming Foundation Live
+⏳ **Tier 3 IN PROGRESS** - Content Library Management (Phase 2 Foundational Complete)
 
-**Current Phase**: Tier 1 implementation complete, all 41 tests passing (100%), production-ready
+**Current Phase**: Tier 3 Phase 2 (Foundational) complete - 51 unit tests passing (100%)
 
-- ✅ Tier 1: OBS Streaming Foundation (COMPLETE - 2025-10-22)
-- ⏳ Tier 2: Content Intelligence (Planned)
-- ⏳ Tier 3: AI Teaching Personality (Planned)
-- ⏳ Tier 4: Supporting Infrastructure (Planned)
+- ✅ Tier 1: OBS Streaming Foundation (COMPLETE - 2025-10-22) - 41 tests passing
+- ⏳ Tier 2: Twitch Chat Bot (PLANNED)
+- 🚧 Tier 3: Content Library Management (IN PROGRESS - Phase 2 Complete 2025-10-22)
+  - ✅ Phase 2: Database schema, models, repositories, OBS text overlays - 51 tests passing
+  - ⏳ Phase 3-8: Download scripts, metadata extraction, scheduling integration
+- ⏳ Tier 4: Advanced AI Co-Host (PLANNED)
+- ⏳ Tier 5: Supporting Infrastructure (PLANNED)
 
 **Quick Links**:
 - 📜 [Constitution](.specify/memory/constitution.md) - 8 core principles and 4-tier priority structure
@@ -120,13 +124,20 @@ curl http://localhost:8000/health | jq
 - Basic chat moderation (timeout handling, command cooldowns)
 - **Why Tier 2**: Standalone feature requiring no content library, immediate viewer value
 
-### Tier 3: Intelligent Content Management ⏳ PLANNED
-**Focus**: Smart content selection and scheduling
-- Time-based content blocks (kids hours, adult hours, late night)
-- Content metadata and age-appropriateness tagging
-- Priority-based content scheduling algorithm
-- Content library organization and indexing
-- Foundation for advanced AI features
+### Tier 3: Content Library Management 🚧 IN PROGRESS
+**Focus**: Educational content library with CC-licensed video management
+- ✅ **Phase 2 Complete**: Database schema, domain models, repositories, OBS text overlays (51 tests)
+  - 4 database tables: `license_info`, `content_sources`, `content_library`, `download_jobs`
+  - Pydantic models with full validation (97% coverage)
+  - Repository layer with CRUD operations (95% coverage)
+  - OBS text source control for attribution overlays
+  - CC license seed data (MIT OCW, CS50, Khan Academy, Blender)
+- ⏳ **Phase 3-8**: Download scripts, metadata extraction, scheduling integration
+  - yt-dlp download scripts for educational content sources
+  - ffprobe metadata extraction and validation
+  - Time-based content blocks and age-appropriateness filtering
+  - Priority-based content scheduling algorithm
+  - WSL2 path mapping for Windows OBS access
 
 ### Tier 4: Advanced AI Co-Host ⏳ PLANNED
 **Focus**: Context-aware AI with vision and deep knowledge

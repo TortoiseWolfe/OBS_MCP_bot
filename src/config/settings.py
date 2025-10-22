@@ -71,12 +71,31 @@ class SceneSettings(BaseModel):
 
 
 class ContentSettings(BaseModel):
-    """Content scheduling settings."""
+    """Content scheduling settings (Tier 1 + Tier 3 content library)."""
 
+    # Tier 1: Basic content paths
     library_path: Path = Path("/app/content")
     windows_content_path: str = "//wsl.localhost/Debian/home/turtle_wolfe/repos/OBS_bot/content"
     failover_video: Path = Path("/app/content/failover/default_failover.mp4")
     transition_duration_sec: int = 2
+
+    # Tier 3: Content library management
+    scan_interval_hours: int = 24  # How often to rescan content directory
+    verify_files_on_scan: bool = True  # Verify file exists and is readable
+    extract_metadata_on_scan: bool = True  # Use ffprobe to extract duration/size
+    require_license_info: bool = True  # Enforce license_type FK constraint
+
+    # Tier 3: Download settings (future feature)
+    enable_downloads: bool = False  # Enable yt-dlp download functionality
+    download_max_file_size_mb: int = 2000  # Max size per video
+    download_max_concurrent: int = 2  # Max concurrent downloads
+    download_retry_attempts: int = 3  # Retry failed downloads
+
+    # Tier 3: Source-specific paths
+    mit_ocw_path: Path = Path("/app/content/mit_ocw")
+    cs50_path: Path = Path("/app/content/cs50")
+    khan_academy_path: Path = Path("/app/content/khan_academy")
+    blender_path: Path = Path("/app/content/blender")
 
     @field_validator("failover_video")
     @classmethod

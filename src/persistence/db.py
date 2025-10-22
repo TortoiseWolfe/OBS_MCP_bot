@@ -1,7 +1,7 @@
 """SQLite database schema and connection management.
 
-Implements all 9 entities from data-model.md with proper constraints, indexes,
-and foreign keys. Uses aiosqlite for async database operations.
+Implements Tier 1 streaming entities (1-4, 9-11) and Tier 3 content library entities (5-8)
+with proper constraints, indexes, and foreign keys. Uses aiosqlite for async database operations.
 """
 
 import aiosqlite
@@ -14,7 +14,7 @@ from src.config.logging import get_logger
 logger = get_logger(__name__)
 
 
-# Database schema SQL - all 9 tables from data-model.md
+# Database schema SQL - Tier 1 + Tier 3 tables (11 total)
 SCHEMA_SQL = """
 -- 1. StreamSession: Continuous broadcast period tracking
 CREATE TABLE IF NOT EXISTS stream_sessions (
@@ -92,25 +92,107 @@ CREATE TABLE IF NOT EXISTS owner_sessions (
 CREATE INDEX IF NOT EXISTS idx_owner_stream ON owner_sessions(stream_session_id);
 
 
--- 5. ContentSource: Media that can be displayed on stream (FR-035-042)
+-- 5. LicenseInfo: Creative Commons license metadata (Tier 3)
+CREATE TABLE IF NOT EXISTS license_info (
+    license_id TEXT PRIMARY KEY,
+    license_type TEXT NOT NULL UNIQUE,
+    source_name TEXT NOT NULL,
+    attribution_text TEXT NOT NULL,
+    license_url TEXT NOT NULL,
+    permits_commercial_use INTEGER NOT NULL CHECK(permits_commercial_use IN (0, 1)),
+    permits_modification INTEGER NOT NULL CHECK(permits_modification IN (0, 1)),
+    requires_attribution INTEGER NOT NULL CHECK(requires_attribution IN (0, 1)),
+    requires_share_alike INTEGER NOT NULL CHECK(requires_share_alike IN (0, 1)),
+    verified_date TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_license_info_type ON license_info(license_type);
+
+
+-- 6. ContentSource: Individual video files in content library (Tier 3)
 CREATE TABLE IF NOT EXISTS content_sources (
     source_id TEXT PRIMARY KEY,
-    source_type TEXT NOT NULL CHECK (source_type IN ('video_file', 'scene_composition', 'live_input')),
-    file_path TEXT,
-    duration_sec INTEGER,
-    age_appropriateness TEXT NOT NULL CHECK (age_appropriateness IN ('kids', 'teen', 'adult', 'all_ages')),
-    time_blocks_allowed TEXT NOT NULL,  -- JSON array of block IDs
-    priority_level INTEGER NOT NULL CHECK (priority_level BETWEEN 1 AND 100),
-    last_verified_at TEXT NOT NULL,
-    metadata TEXT,  -- JSON
+    title TEXT NOT NULL,
+    file_path TEXT NOT NULL UNIQUE,
+    windows_obs_path TEXT NOT NULL,
+    duration_sec INTEGER NOT NULL CHECK(duration_sec >= 0),
+    file_size_mb REAL NOT NULL CHECK(file_size_mb > 0),
+    source_attribution TEXT NOT NULL CHECK(source_attribution IN ('MIT_OCW', 'CS50', 'KHAN_ACADEMY', 'BLENDER')),
+    license_type TEXT NOT NULL,
+    course_name TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    attribution_text TEXT NOT NULL,
+    age_rating TEXT NOT NULL CHECK(age_rating IN ('kids', 'adult', 'all')),
+    time_blocks TEXT NOT NULL,  -- JSON array
+    priority INTEGER NOT NULL CHECK(priority BETWEEN 1 AND 10),
+    tags TEXT NOT NULL,  -- JSON array
+    last_verified TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (license_type) REFERENCES license_info(license_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_sources_time_blocks ON content_sources(time_blocks);
+CREATE INDEX IF NOT EXISTS idx_content_sources_attribution ON content_sources(source_attribution);
+CREATE INDEX IF NOT EXISTS idx_content_sources_age_rating ON content_sources(age_rating);
+CREATE INDEX IF NOT EXISTS idx_content_sources_priority ON content_sources(priority DESC);
+
+
+-- 7. ContentLibrary: Aggregate statistics (singleton) (Tier 3)
+CREATE TABLE IF NOT EXISTS content_library (
+    library_id TEXT PRIMARY KEY,
+    total_videos INTEGER NOT NULL DEFAULT 0,
+    total_duration_sec INTEGER NOT NULL DEFAULT 0,
+    total_size_mb REAL NOT NULL DEFAULT 0.0,
+    last_scanned TEXT NOT NULL,
+    mit_ocw_count INTEGER NOT NULL DEFAULT 0,
+    cs50_count INTEGER NOT NULL DEFAULT 0,
+    khan_academy_count INTEGER NOT NULL DEFAULT 0,
+    blender_count INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_content_priority ON content_sources(priority_level);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_content_library_singleton ON content_library(library_id);
 
 
--- 6. ScheduleBlock: Time-based programming configuration
+-- 8. DownloadJob: Content download operation tracking (Tier 3, future feature)
+CREATE TABLE IF NOT EXISTS download_jobs (
+    job_id TEXT PRIMARY KEY,
+    source_name TEXT NOT NULL CHECK(source_name IN ('MIT_OCW', 'CS50', 'KHAN_ACADEMY')),
+    status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+    started_at TEXT,
+    completed_at TEXT,
+    videos_downloaded INTEGER NOT NULL DEFAULT 0,
+    total_size_mb REAL NOT NULL DEFAULT 0.0,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_download_jobs_source ON download_jobs(source_name);
+
+
+-- Seed Data: License information for CC-licensed content sources (Tier 3)
+INSERT OR IGNORE INTO license_info (
+    license_id,
+    license_type,
+    source_name,
+    attribution_text,
+    license_url,
+    permits_commercial_use,
+    permits_modification,
+    requires_attribution,
+    requires_share_alike,
+    verified_date
+) VALUES
+    ('550e8400-e29b-41d4-a716-446655440001', 'CC BY-NC-SA 4.0', 'MIT OpenCourseWare', '{source} {course}: {title} - CC BY-NC-SA 4.0', 'https://creativecommons.org/licenses/by-nc-sa/4.0/', 0, 1, 1, 1, '2025-10-22T00:00:00Z'),
+    ('550e8400-e29b-41d4-a716-446655440002', 'CC BY-NC-SA 4.0', 'Harvard CS50', '{source} CS50: {title} - CC BY-NC-SA 4.0', 'https://creativecommons.org/licenses/by-nc-sa/4.0/', 0, 1, 1, 1, '2025-10-22T00:00:00Z'),
+    ('550e8400-e29b-41d4-a716-446655440003', 'CC BY-NC-SA', 'Khan Academy', 'Khan Academy: {title} - CC BY-NC-SA', 'https://creativecommons.org/licenses/by-nc-sa/3.0/', 0, 1, 1, 1, '2025-10-22T00:00:00Z'),
+    ('550e8400-e29b-41d4-a716-446655440004', 'CC BY 3.0', 'Blender Foundation', 'Big Buck Bunny © 2008 Blender Foundation - CC BY 3.0', 'https://creativecommons.org/licenses/by/3.0/', 1, 1, 1, 0, '2025-10-22T00:00:00Z');
+
+
+-- 9. ScheduleBlock: Time-based programming configuration
 CREATE TABLE IF NOT EXISTS schedule_blocks (
     block_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -125,7 +207,7 @@ CREATE TABLE IF NOT EXISTS schedule_blocks (
 );
 
 
--- 7. OwnerInterruptConfiguration: Owner "Go Live" configuration
+-- 10. OwnerInterruptConfiguration: Owner "Go Live" configuration
 CREATE TABLE IF NOT EXISTS owner_interrupt_configs (
     config_id TEXT PRIMARY KEY,
     hotkey_binding TEXT NOT NULL,
@@ -139,7 +221,7 @@ CREATE TABLE IF NOT EXISTS owner_interrupt_configs (
 );
 
 
--- 8. SceneConfiguration: Required OBS scene metadata (FR-003-004)
+-- 11. SceneConfiguration: Required OBS scene metadata (FR-003-004)
 CREATE TABLE IF NOT EXISTS scene_configurations (
     scene_id TEXT PRIMARY KEY,
     scene_name TEXT NOT NULL UNIQUE,
