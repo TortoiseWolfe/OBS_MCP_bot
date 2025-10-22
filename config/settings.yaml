@@ -1,0 +1,114 @@
+# OBS_bot Configuration File
+# Tier 1 OBS Streaming Foundation Settings
+
+# OBS WebSocket Connection
+obs:
+  # websocket_url: "ws://localhost:4455"  # Set via OBS_BOT_OBS__WEBSOCKET_URL env var
+  # password: ""  # Set via OBS_WEBSOCKET_PASSWORD env var for security
+  connection_timeout_sec: 10
+  reconnect_interval_sec: 5
+  max_reconnect_attempts: 10
+
+# Twitch Streaming
+twitch:
+  # stream_key: ""  # REQUIRED - Set via TWITCH_STREAM_KEY env var (NEVER commit)
+  rtmp_url: "rtmp://live.twitch.tv/app"
+  reconnect_interval_sec: 10
+  max_reconnect_attempts: 0  # 0 = infinite retries
+
+# Stream Quality Settings
+stream:
+  resolution: "1920x1080"
+  framerate: 60
+  bitrate_kbps: 6000
+  encoder: "x264"  # or "nvenc" for NVIDIA GPU encoding
+
+# Owner Interrupt Detection (FR-029-035)
+owner_interrupt:
+  detection_method: "hotkey_and_scene"  # Options: "hotkey", "scene", "hotkey_and_scene"
+  hotkey_binding: "F8"  # Owner presses this to signal "I'm going live"
+  owner_scene_name: "Owner Live"  # Scene name in OBS for owner content
+  transition_duration_ms: 1000  # Transition effect duration
+  debounce_sec: 5  # Prevent false triggers from quick scene switches
+
+# Required OBS Scenes (created automatically if missing per FR-003-004)
+scenes:
+  automated_content: "Automated Content"
+  owner_live: "Owner Live"
+  failover: "Failover"
+  technical_difficulties: "Technical Difficulties"
+  going_live_soon: "Going Live Soon"  # Edge case: owner source not ready
+
+# Content Scheduling (FR-035-042)
+content:
+  library_path: "/app/content"  # Path to educational video files (container)
+  windows_content_path: "//wsl.localhost/Debian/home/turtle_wolfe/repos/OBS_bot/content"  # WSL path for OBS (forward slashes)
+  failover_video: "/app/content/failover/default_failover.mp4"  # REQUIRED for pre-flight
+  transition_duration_sec: 2  # Max gap between content (FR-036)
+
+# Schedule Blocks (time-based content filtering per Constitutional Principle III)
+schedule_blocks:
+  - name: "Kids After School"
+    time_range: "15:00-18:00"  # 3 PM - 6 PM local time
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    age_requirement: "kids"
+    allowed_types: ["creative", "simplified"]
+
+  - name: "Professional Hours"
+    time_range: "09:00-15:00"  # 9 AM - 3 PM local time
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    age_requirement: "adult"
+    allowed_types: ["ai_tools", "workflows", "professional"]
+
+  - name: "Evening Mixed"
+    time_range: "19:00-22:00"  # 7 PM - 10 PM local time
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    age_requirement: "all"
+    allowed_types: ["algorithms", "problem_solving"]
+
+# Health Monitoring (FR-019-023)
+health:
+  metrics_collection_interval_sec: 10  # How often to poll OBS for metrics
+  degraded_quality_threshold_pct: 1.0  # Dropped frames > 1% = warning
+  failure_detection_timeout_sec: 30  # Max time to detect stream failure
+
+# Health API
+api:
+  host: "127.0.0.1"  # localhost-only per FR-023 security requirement
+  port: 8000
+  enable_cors: false  # Set true for development only
+
+# Discord Alerting (FR-043-045)
+discord:
+  # webhook_url: ""  # REQUIRED - Set via DISCORD_WEBHOOK_URL env var
+  alert_on_stream_offline: true
+  alert_on_validation_failed: true
+  alert_on_failover_triggered: true
+  offline_threshold_sec: 120  # Alert if offline > 2 minutes
+
+# Pre-flight Validation (FR-009-013)
+preflight:
+  retry_interval_sec: 60  # Retry failed validation every 60 seconds
+  required_checks:
+    - obs_connectivity
+    - obs_scenes_exist
+    - failover_content_exists
+    - twitch_credentials_valid
+    # - network_connectivity  # Disabled for MVP - DNS resolution issue in Docker/WSL2
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"  # json or text
+  rotation_days: 30  # Keep logs for 30 days
+  max_size_mb: 1000  # Max 1GB per edge case requirement
+
+# Database
+database:
+  path: "/app/data/obs_bot.db"  # SQLite database file
+  backup_interval_hours: 24  # Create daily backups
+
+# System
+system:
+  timezone: "UTC"  # All timestamps stored in UTC internally
+  graceful_shutdown_timeout_sec: 30  # Time to cleanly stop streaming on SIGTERM

@@ -1,0 +1,61 @@
+# .dockerignore - Exclude from Docker build context
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation and specs (not needed in runtime container)
+README.md
+specs/
+.specify/
+.speckit/
+.claude/
+
+# Python development
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments (never copy into container)
+.venv/
+venv/
+ENV/
+env/
+
+# Runtime data (mounted as volumes, not copied)
+data/
+logs/
+*.log
+content/
+
+# Environment files (secrets managed via docker-compose env vars)
+.env
+.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (don't copy Docker config into image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,41 @@
+# Tier 1 OBS Streaming Foundation Dependencies
+# Python 3.11+ required
+
+# OBS Control
+obs-websocket-py==1.0  # OBS WebSocket protocol v5.x support
+
+# HTTP Framework & Server
+fastapi==0.115.0         # Health API endpoints
+uvicorn[standard]==0.32.0  # ASGI server with auto-reload
+
+# Configuration Management
+pydantic==2.9.2          # Settings validation and type safety
+pydantic-settings==2.6.0  # Environment variable configuration
+PyYAML==6.0.2            # YAML configuration file parsing
+
+# Logging
+structlog==24.4.0        # Structured JSON logging
+
+# Discord Alerting
+discord-webhook==1.3.1   # Critical failure notifications
+
+# Database
+aiosqlite==0.20.0        # Async SQLite for state persistence
+
+# Async Runtime (bundled with Python 3.11+, listed for clarity)
+# asyncio - stdlib
+
+# System Monitoring
+psutil==6.1.0            # System CPU/memory monitoring for health metrics
+
+# Testing
+pytest==8.3.3            # Test framework
+pytest-asyncio==0.24.0   # Async test support
+pytest-cov==6.0.0        # Code coverage
+httpx==0.27.2            # Async HTTP client for API testing
+
+# Development Tools
+ruff==0.7.4              # Fast Python linter and formatter
+mypy==1.13.0             # Static type checking
+types-PyYAML==6.0.12.20240917  # Type stubs for PyYAML
+types-psutil==6.1.0.20241221   # Type stubs for psutil
