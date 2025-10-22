@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
+from src.config.logging import get_logger
 from src.models.content_library import (
     AgeRating,
     ContentLibrary,
@@ -19,6 +20,8 @@ from src.models.content_library import (
     LicenseInfo,
     SourceAttribution,
 )
+
+logger = get_logger(__name__)
 
 
 class LicenseInfoRepository:
@@ -170,6 +173,7 @@ class ContentSourceRepository:
             db_path: Path to SQLite database file
         """
         self.db_path = db_path
+        logger.info("content_source_repository_initialized", db_path=db_path)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with row factory."""
@@ -220,7 +224,21 @@ class ContentSourceRepository:
                 ),
             )
             conn.commit()
+            logger.info(
+                "content_source_created",
+                source_id=str(content_source.source_id),
+                title=content_source.title,
+                source=content_source.source_attribution.value,
+                duration_sec=content_source.duration_sec,
+            )
             return content_source
+        except Exception as e:
+            logger.error(
+                "content_source_create_failed",
+                title=content_source.title,
+                error=str(e),
+            )
+            raise
         finally:
             conn.close()
 
@@ -359,7 +377,16 @@ class ContentSourceRepository:
                 "SELECT * FROM content_sources ORDER BY priority ASC, title ASC"
             )
             rows = cursor.fetchall()
-            return [self._row_to_content_source(row) for row in rows]
+            content_sources = [self._row_to_content_source(row) for row in rows]
+            logger.info(
+                "content_sources_listed",
+                count=len(content_sources),
+                total_duration_hours=sum(c.duration_sec for c in content_sources) / 3600,
+            )
+            return content_sources
+        except Exception as e:
+            logger.error("content_sources_list_failed", error=str(e))
+            raise
         finally:
             conn.close()
 
