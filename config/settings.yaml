@@ -46,6 +46,31 @@ content:
   failover_video: "/app/content/failover/default_failover.mp4"  # REQUIRED for pre-flight
   transition_duration_sec: 2  # Max gap between content (FR-036)
 
+  # Content Library Structure (expanded from Big Buck Bunny to full educational library)
+  # See content/README.md for full documentation
+  time_block_paths:
+    kids_after_school: "/app/content/kids-after-school"  # 3-6 PM: Creative coding, beginner content
+    professional_hours: "/app/content/professional-hours"  # 9 AM-3 PM: Advanced CS, workflows, tools
+    evening_mixed: "/app/content/evening-mixed"          # 7-10 PM: Algorithms, problem solving
+    general: "/app/content/general"                       # All-audience CS fundamentals
+    failover: "/app/content/failover"                     # Emergency failover content
+
+  # Content sources (CC-licensed educational content)
+  # All content licensed CC BY-NC-SA (attribution, non-commercial, share-alike)
+  sources:
+    - name: "MIT OpenCourseWare 6.0001"
+      path: "/app/content/general/mit-ocw-6.0001"
+      license: "CC BY-NC-SA 4.0"
+      attribution: "MIT OpenCourseWare"
+    - name: "Harvard CS50"
+      path: "/app/content/general/harvard-cs50"
+      license: "CC BY-NC-SA 4.0"
+      attribution: "Harvard University CS50"
+    - name: "Khan Academy Programming"
+      path: "/app/content/kids-after-school/khan-academy"
+      license: "CC BY-NC-SA"
+      attribution: "Khan Academy"
+
 # Schedule Blocks (time-based content filtering per Constitutional Principle III)
 schedule_blocks:
   - name: "Kids After School"
