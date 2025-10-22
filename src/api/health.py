@@ -15,6 +15,7 @@ from src.config.logging import get_logger
 from src.models.downtime_event import DowntimeEvent
 from src.models.health_metric import HealthMetric
 from src.models.stream_session import StreamSession
+from src.persistence.repositories.content_library import ContentSourceRepository
 from src.persistence.repositories.events import EventsRepository
 from src.persistence.repositories.metrics import MetricsRepository
 from src.persistence.repositories.sessions import SessionsRepository
@@ -131,18 +132,33 @@ class ErrorResponse(BaseModel):
     timestamp: datetime
 
 
+class ContentLibraryMetrics(BaseModel):
+    """Content library statistics (T077)."""
+
+    total_videos: int = Field(ge=0, description="Total number of videos in library")
+    total_duration_sec: int = Field(ge=0, description="Total duration of all videos in seconds")
+    total_duration_hours: float = Field(ge=0, description="Total duration in hours")
+    total_size_bytes: int = Field(ge=0, description="Total size of all videos in bytes")
+    total_size_gb: float = Field(ge=0, description="Total size in gigabytes")
+    videos_by_source: dict = Field(description="Breakdown by content source (MIT OCW, CS50, etc)")
+    videos_by_time_block: dict = Field(description="Breakdown by time block (general, kids, professional)")
+    avg_video_duration_min: float = Field(ge=0, description="Average video duration in minutes")
+
+
 # ===== Dependencies =====
 
 # These will be injected from main.py
 _sessions_repo: Optional[SessionsRepository] = None
 _metrics_repo: Optional[MetricsRepository] = None
 _events_repo: Optional[EventsRepository] = None
+_content_repo: Optional[ContentSourceRepository] = None
 
 
 def init_repositories(
     sessions_repo: SessionsRepository,
     metrics_repo: MetricsRepository,
     events_repo: EventsRepository,
+    content_repo: Optional[ContentSourceRepository] = None,
 ) -> None:
     """Initialize repository dependencies.
 
@@ -152,12 +168,14 @@ def init_repositories(
         sessions_repo: Sessions repository
         metrics_repo: Metrics repository
         events_repo: Events repository
+        content_repo: Content source repository (optional, for Tier 3 content library metrics)
     """
-    global _sessions_repo, _metrics_repo, _events_repo
+    global _sessions_repo, _metrics_repo, _events_repo, _content_repo
     _sessions_repo = sessions_repo
     _metrics_repo = metrics_repo
     _events_repo = events_repo
-    logger.info("health_api_repositories_initialized")
+    _content_repo = content_repo
+    logger.info("health_api_repositories_initialized", content_library_enabled=content_repo is not None)
 
 
 # ===== Endpoints =====
@@ -593,6 +611,94 @@ async def get_failover_analytics():
         "slowest_recovery_sec": max(recovery_times),
         "causes_breakdown": causes_breakdown
     }
+
+
+@app.get(
+    "/health/content-library",
+    response_model=ContentLibraryMetrics,
+    responses={
+        503: {"model": ErrorResponse, "description": "Content library not initialized"}
+    },
+    summary="Get content library statistics (T077)",
+    tags=["Health"],
+)
+async def get_content_library_metrics() -> ContentLibraryMetrics:
+    """Get content library statistics and metrics (T077).
+
+    Returns comprehensive metrics about the content library:
+    - Total number of videos
+    - Total duration and file size
+    - Breakdown by content source (MIT OCW, CS50, etc.)
+    - Breakdown by time block (general, kids, professional)
+    - Average video duration
+
+    This endpoint supports operational monitoring and capacity planning
+    for the Tier 3 Content Library Management feature.
+    """
+    if not _content_repo:
+        raise HTTPException(
+            status_code=503,
+            detail="Content library not initialized - Tier 3 feature not enabled",
+        )
+
+    # Get all videos from content library
+    all_videos = _content_repo.list_all()
+
+    if not all_videos:
+        # Empty library - return zeros
+        return ContentLibraryMetrics(
+            total_videos=0,
+            total_duration_sec=0,
+            total_duration_hours=0.0,
+            total_size_bytes=0,
+            total_size_gb=0.0,
+            videos_by_source={},
+            videos_by_time_block={},
+            avg_video_duration_min=0.0,
+        )
+
+    # Calculate totals
+    total_duration_sec = sum(v.duration_sec for v in all_videos)
+    total_size_bytes = sum(v.file_size_bytes for v in all_videos)
+
+    # Group by source
+    videos_by_source = {}
+    for video in all_videos:
+        source = video.source_attribution.value
+        if source not in videos_by_source:
+            videos_by_source[source] = 0
+        videos_by_source[source] += 1
+
+    # Group by time blocks (a video can be in multiple time blocks)
+    videos_by_time_block = {}
+    for video in all_videos:
+        for block in video.time_blocks:
+            if block not in videos_by_time_block:
+                videos_by_time_block[block] = 0
+            videos_by_time_block[block] += 1
+
+    # Calculate averages
+    avg_duration_min = (total_duration_sec / len(all_videos) / 60) if all_videos else 0.0
+
+    metrics = ContentLibraryMetrics(
+        total_videos=len(all_videos),
+        total_duration_sec=total_duration_sec,
+        total_duration_hours=round(total_duration_sec / 3600, 2),
+        total_size_bytes=total_size_bytes,
+        total_size_gb=round(total_size_bytes / (1024**3), 2),
+        videos_by_source=videos_by_source,
+        videos_by_time_block=videos_by_time_block,
+        avg_video_duration_min=round(avg_duration_min, 1),
+    )
+
+    logger.info(
+        "content_library_metrics_generated",
+        total_videos=metrics.total_videos,
+        total_duration_hours=metrics.total_duration_hours,
+        total_size_gb=metrics.total_size_gb,
+    )
+
+    return metrics
 
 
 # ===== Helper Functions =====

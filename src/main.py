@@ -295,6 +295,7 @@ class Application:
             sessions_repo=self.sessions_repo,
             metrics_repo=self.metrics_repo,
             events_repo=self.events_repo,
+            content_repo=self.content_source_repo,  # T077: Pass content repo for health metrics
         )
 
         # Configure uvicorn

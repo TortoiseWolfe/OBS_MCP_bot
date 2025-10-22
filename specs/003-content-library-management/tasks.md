@@ -15,7 +15,7 @@
 
 ## 📋 Implementation Status & Deviations (2025-10-22)
 
-**Progress**: 71 of 82 tasks complete (87%) 🎉 PRODUCTION-READY! (11 tasks deferred as non-blocking)
+**Progress**: 72 of 82 tasks complete (88%) 🎉 PRODUCTION-READY! (10 tasks deferred as non-blocking)
 
 **✅ Phase 1 COMPLETE**: Setup (T001-T006) - 6 tasks
 **✅ Phase 2 COMPLETE**: Foundational infrastructure (T007-T016) - 10 tasks, 51 unit tests passing
@@ -24,7 +24,7 @@
 **✅ Phase 5 COMPLETE**: Time-block organization (T035-T041) - 7 tasks
 **✅ Phase 6 COMPLETE**: Smart scheduling + metadata extraction (T042-T057) - 16 tasks
 **✅ Phase 7 COMPLETE**: License compliance (T058-T066) - 9 tasks
-**✅ Phase 8 ESSENTIAL COMPLETE**: Core docs (T067, T069-T071, T076) - 5 of 16 tasks complete, 11 deferred
+**✅ Phase 8 ESSENTIAL COMPLETE**: Core docs + health API (T067, T069-T071, T076-T077) - 6 of 16 tasks complete, 10 deferred
 **🆕 BONUS COMPLETE**: Dynamic video scaling (not in original 82 tasks)
 **🆕 NEW SCOPE**: Live caption overlay feature (not in original plan) - to be spec'd
 
@@ -45,8 +45,8 @@
 **MCP Integration**: Configured `@jkawamoto/mcp-youtube-transcript` server (~/.config/claude/mcp.json)
 **Next Step**: Formal specification required via `/speckit.specify` before implementing caption sync service
 
-### Deferred Work (11 tasks)
-- **Phase 8** (11 tasks deferred as non-blocking): Validation scripts (T068), integration tests (T072-T075, T074a), enhanced observability (T077-T078), comprehensive validation (T079-T080)
+### Deferred Work (10 tasks)
+- **Phase 8** (10 tasks deferred as non-blocking): Validation scripts (T068), integration tests (T072-T075, T074a), enhanced logging (T078), comprehensive validation (T079-T080)
 - **Rationale**: Core functionality production-ready, these tasks enhance testing/observability but don't block deployment
 - **NEW**: Caption overlay feature - needs formal specification via `/speckit.specify` before implementation
 
@@ -246,8 +246,8 @@
 - [~] T074a [P] Write performance test for attribution update timing (<1 second requirement from SC-013) in tests/integration/test_obs_attribution_timing.py (DEFERRED: Manual timing tests confirm <1s performance)
 - [~] T075 [P] Write integration test for content library workflow in tests/integration/test_content_library_integration.py (DEFERRED: End-to-end workflow manually verified)
 - [X] T076 Update main README.md with content library management section and quickstart link (IMPLEMENTED: Lines 112-181, comprehensive section with features, setup, documentation links)
-- [~] T077 Add content library metrics to health API endpoint (total videos, duration, disk usage) (DEFERRED: Non-essential observability feature, can add later)
-- [~] T078 Add structured logging for download operations, metadata extraction, and attribution updates (DEFERRED: Basic logging exists, enhanced logging non-blocking)
+- [X] T077 Add content library metrics to health API endpoint (total videos, duration, disk usage) (IMPLEMENTED: /health/content-library endpoint with comprehensive metrics - total videos, duration, size, breakdowns by source and time block)
+- [~] T078 Add structured logging for download operations, metadata extraction, and attribution updates (DEFERRED: Basic logging exists throughout codebase, enhanced logging non-blocking)
 - [~] T079 Verify all 135 release-gate checklist items pass from checklists/release-gate.md (DEFERRED: Core functionality verified, comprehensive checklist for later)
 - [~] T080 Run end-to-end validation following specs/003-content-library-management/quickstart.md (DEFERRED: System manually validated as working end-to-end)
 
