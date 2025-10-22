@@ -739,6 +739,94 @@ async def test_owner_interrupt_detection(obs_settings):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_manual_scene_selection_not_triggering_return(obs_settings):
+    """Test that manual scene selection doesn't trigger owner return.
+
+    BUG FIX REGRESSION TEST: Verifies that switching from "Owner Live" to
+    a manual scene (not "Automated Content") does NOT trigger owner return.
+    Only explicit switch to "Automated Content" should trigger return.
+
+    Verifies:
+    - on_owner_return is NOT triggered when switching to manual scenes
+    - on_owner_return IS triggered when switching to "Automated Content"
+    - Owner can manually control OBS scenes without aggressive auto-switching
+    """
+    import asyncio
+    from src.config.settings import Settings
+    from src.services.obs_controller import OBSController
+    from src.services.owner_detector import OwnerDetector
+
+    # Load settings
+    settings = Settings.load_from_yaml()
+    settings.obs = obs_settings
+
+    # Create OBS controller
+    obs_controller = OBSController(settings.obs)
+    await obs_controller.connect()
+
+    try:
+        # Track callback invocations
+        owner_return_called = []
+
+        async def on_owner_return(owner_scene):
+            owner_return_called.append({"owner_scene": owner_scene})
+
+        # Create OwnerDetector
+        owner_detector = OwnerDetector(settings, obs_controller)
+        owner_detector.on_owner_return(on_owner_return)
+
+        # Start detector
+        await owner_detector.start()
+
+        # Switch to "Owner Live" scene
+        await obs_controller.switch_scene("Owner Live")
+        await asyncio.sleep(4)  # Wait for detection
+
+        # Clear any callbacks from setup
+        owner_return_called.clear()
+
+        # BUG FIX TEST: Switch to manual scene (e.g., Failover)
+        await obs_controller.switch_scene("Failover")
+        await asyncio.sleep(4)  # Wait for detection
+
+        # Verify on_owner_return was NOT triggered (manual scene selection respected)
+        assert len(owner_return_called) == 0, (
+            "Manual scene selection should NOT trigger owner return"
+        )
+
+        # Now switch to "Automated Content" explicitly
+        await obs_controller.switch_scene("Automated Content")
+        await asyncio.sleep(4)  # Wait for detection
+
+        # Verify on_owner_return was NOT triggered (not coming from "Owner Live")
+        assert len(owner_return_called) == 0, (
+            "Switching to Automated Content when not from Owner Live should NOT trigger"
+        )
+
+        # Switch back to "Owner Live"
+        await obs_controller.switch_scene("Owner Live")
+        await asyncio.sleep(4)
+        owner_return_called.clear()
+
+        # Now switch to "Automated Content" from "Owner Live" (should trigger)
+        await obs_controller.switch_scene("Automated Content")
+        await asyncio.sleep(4)
+
+        # Verify on_owner_return IS triggered (explicit return to automated)
+        assert len(owner_return_called) == 1, (
+            "Switching to Automated Content from Owner Live should trigger owner return"
+        )
+        assert owner_return_called[0]["owner_scene"] == "Owner Live"
+
+        # Stop detector
+        await owner_detector.stop()
+
+    finally:
+        await obs_controller.disconnect()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_owner_session_persistence(obs_settings):
     """Test owner session database persistence.
 

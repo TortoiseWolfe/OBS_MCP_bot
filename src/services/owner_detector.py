@@ -212,8 +212,11 @@ class OwnerDetector:
         if new_scene == self._owner_live_scene and previous_scene != self._owner_live_scene:
             await self._handle_owner_goes_live(previous_scene)
 
-        # Owner returning to automated (transition FROM "Owner Live")
-        elif previous_scene == self._owner_live_scene and new_scene != self._owner_live_scene:
+        # Owner returning to automated (transition FROM "Owner Live" TO "Automated Content")
+        # BUG FIX: Only trigger owner return when explicitly switching to Automated Content scene
+        # This prevents content scheduler from aggressively switching back when owner manually
+        # selects a different scene (e.g., "Scene 2", "Scene 3")
+        elif previous_scene == self._owner_live_scene and new_scene == "Automated Content":
             await self._handle_owner_returns(new_scene)
 
     async def _handle_owner_goes_live(self, interrupted_scene: Optional[str]) -> None:

@@ -24,9 +24,13 @@ stream:
   encoder: "x264"  # or "nvenc" for NVIDIA GPU encoding
 
 # Owner Interrupt Detection (FR-029-035)
+# NOTE: System detects when owner switches to "Owner Live" scene in OBS
+# The F8 hotkey must be manually configured in OBS:
+#   OBS → Settings → Hotkeys → Scenes → "Owner Live" → Set hotkey to F8
+# System will detect the resulting scene change automatically (no programmatic hotkey binding)
 owner_interrupt:
   detection_method: "hotkey_and_scene"  # Options: "hotkey", "scene", "hotkey_and_scene"
-  hotkey_binding: "F8"  # Owner presses this to signal "I'm going live"
+  hotkey_binding: "F8"  # Hotkey owner should configure in OBS to switch to "Owner Live"
   owner_scene_name: "Owner Live"  # Scene name in OBS for owner content
   transition_duration_ms: 1000  # Transition effect duration
   debounce_sec: 5  # Prevent false triggers from quick scene switches
