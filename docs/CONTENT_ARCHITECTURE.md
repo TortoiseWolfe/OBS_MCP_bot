@@ -348,6 +348,187 @@ Edit download scripts:
 
 ---
 
+## License Compliance & DMCA Risk Analysis (T066)
+
+### Risk Assessment: **LOW RISK**
+
+This content library is designed for minimal DMCA and copyright risk through careful license selection and compliance measures.
+
+### Why This Library is Low Risk
+
+1. **Pre-Cleared Licenses**:
+   - All content uses Creative Commons licenses (CC BY, CC BY-SA, CC BY-NC-SA)
+   - Licenses explicitly permit educational, non-commercial streaming
+   - No copyrighted content without clear permission
+
+2. **Authoritative Sources**:
+   - Downloaded directly from official sources (MIT, Harvard, Khan Academy, Blender)
+   - Not ripped from unauthorized sources
+   - Original creators control licensing
+
+3. **Proper Attribution**:
+   - Live on-screen text overlays credit creators during streaming
+   - Attribution format matches license requirements
+   - Links to original sources in stream descriptions
+
+4. **Non-Commercial Operation**:
+   - Zero monetization (no ads, subscriptions, sponsorships)
+   - Educational purpose clearly stated
+   - Twitch TOS compliant
+
+### Licensing Breakdown
+
+| Source | License | Commercial? | Attribution? | Risk Level |
+|--------|---------|-------------|--------------|------------|
+| MIT OCW | CC BY-NC-SA 4.0 | ❌ No | ✅ Yes | **LOW** |
+| Harvard CS50 | CC BY-NC-SA 4.0 | ❌ No | ✅ Yes | **LOW** |
+| Khan Academy | CC BY-NC-SA 3.0 | ❌ No | ✅ Yes | **LOW** |
+| Big Buck Bunny | CC BY 3.0 | ✅ Yes (we don't) | ✅ Yes | **VERY LOW** |
+
+### DMCA Safe Harbor Protections
+
+This stream qualifies for DMCA safe harbor under **17 U.S.C. § 512** (Online Copyright Infringement Liability Limitation Act):
+
+**Requirements Met**:
+1. ✅ **Good Faith**: Content is believed to be properly licensed based on source websites
+2. ✅ **No Commercial Benefit**: Zero monetization eliminates primary copyright concern
+3. ✅ **Attribution**: Proper credit provided to all creators via automated text overlays
+4. ✅ **Responsive**: Will immediately remove content upon valid DMCA notice
+5. ✅ **Educational Purpose**: Fair use considerations apply (17 U.S.C. § 107)
+
+**Platform Protections** (Twitch):
+- Twitch's DMCA policy: https://www.twitch.tv/p/legal/dmca-guidelines/
+- Counter-notice procedures available if content is wrongly claimed
+- Three-strike policy (we operate with zero strikes)
+
+### Common DMCA Scenarios & Responses
+
+#### Scenario 1: MIT/Harvard Issues Takedown
+
+**Likelihood**: **EXTREMELY LOW** (content is explicitly CC-licensed)
+
+**Response**:
+1. Stop streaming immediately
+2. Verify license at source (ocw.mit.edu/terms or cs50.harvard.edu/license)
+3. If license confirmed, file counter-notice with Twitch
+4. Document license verification in `docs/dmca/`
+
+#### Scenario 2: Background Music in Videos
+
+**Likelihood**: **VERY LOW** (MIT/Harvard/Khan use royalty-free or licensed music)
+
+**Response**:
+1. Identify specific video with claimed music
+2. Remove video from content library
+3. Verify music licensing with original creator
+4. Consider audio replacement if video is critical
+
+#### Scenario 3: Third-Party Content Claims
+
+**Likelihood**: **LOW** (all content from authoritative first-party sources)
+
+**Response**:
+1. Verify claim is legitimate (check claimant identity)
+2. If valid: Remove content, document claim
+3. If invalid/mistaken: File counter-notice with evidence
+
+### Preventive Measures
+
+**Already Implemented**:
+- ✅ Automated attribution overlays (OBSAttributionUpdater service)
+- ✅ License verification checklist in content/README.md
+- ✅ Annual license review process
+- ✅ No monetization features enabled
+- ✅ Documentation of all sources and licenses
+
+**Recommended Additional Measures**:
+- 📋 Monthly audit of Twitch DMCA dashboard for claims
+- 📋 Subscribe to MIT/Harvard/Khan Academy license update notifications
+- 📋 Document any DMCA notices (even invalid ones) in `docs/dmca/`
+- 📋 Test attribution overlays monthly to ensure visibility
+
+### Fair Use Considerations (17 U.S.C. § 107)
+
+While this stream relies primarily on CC licenses (not fair use), fair use provides additional protection:
+
+**Four-Factor Test**:
+1. **Purpose**: ✅ Educational, non-commercial, transformative (adding live interaction)
+2. **Nature**: ✅ Educational works (not creative/artistic)
+3. **Amount**: ✅ Full videos, but for educational completeness
+4. **Market Effect**: ✅ No negative impact (promotes original courses)
+
+**Note**: Fair use is a legal defense, not a license. We rely on CC licenses primarily.
+
+### License Violations to Avoid
+
+**Critical Don'ts**:
+1. ❌ **NO Monetization**: Would instantly violate CC BY-NC-SA licenses
+2. ❌ **NO Removal of Attribution**: Must display credit overlays
+3. ❌ **NO License Changes**: Cannot relicense CC BY-NC-SA content as CC BY
+4. ❌ **NO Commercial Use**: No corporate training, paid courses, sponsored streams
+
+**If You Violate NC Clause**:
+- Immediately lose CC license permissions
+- Content becomes unauthorized copyrighted material
+- Subject to DMCA takedown from MIT, Harvard, Khan Academy
+- Potential Twitch account suspension
+
+### DMCA Response Procedures
+
+If you receive a DMCA takedown notice:
+
+**Step 1: Immediate Actions** (within 1 hour)
+```bash
+# Stop all streaming
+docker compose -f docker-compose.prod.yml down
+
+# Remove claimed content
+rm /path/to/claimed/video.mp4
+
+# Document the notice
+mkdir -p docs/dmca/
+cp notice.pdf docs/dmca/notice-YYYY-MM-DD.pdf
+```
+
+**Step 2: Verify Legitimacy** (within 24 hours)
+- Check if claimant is actual copyright holder
+- Verify content is not CC-licensed (check source website)
+- Review attribution overlay logs (was credit shown?)
+
+**Step 3: Respond** (within 10 business days)
+- **If Valid**: Acknowledge, keep content removed, update documentation
+- **If Invalid**: File counter-notice with Twitch providing:
+  - CC license evidence (screenshots, URLs)
+  - Attribution proof (overlay screenshots, logs)
+  - Statement of good faith belief
+
+**Step 4: Document & Learn**
+- Update `content/README.md` if needed
+- Improve attribution overlays if visibility was issue
+- Add source to monthly verification checklist
+
+### Twitch-Specific Copyright Policy
+
+**Twitch Audio Recognition**:
+- Twitch scans VODs for copyrighted music
+- MIT/Harvard/Khan videos may trigger false positives
+- VODs may be muted if music detected
+
+**Prevention**:
+- Download videos without background music if possible
+- Use closed captions instead of audio where appropriate
+- Disable VOD storage if music claims become frequent
+
+**Twitch Strikes**:
+- **First Strike**: Warning, content removed
+- **Second Strike**: 24-hour suspension
+- **Third Strike**: Permanent ban
+
+**Our Status**: Zero strikes (low-risk content library)
+
+---
+
 **Created**: 2025-10-22
 **Architecture Version**: 1.0
 **Related**: README.md, content/README.md, scripts/SETUP.md
+**DMCA Risk Assessment Date**: 2025-10-22

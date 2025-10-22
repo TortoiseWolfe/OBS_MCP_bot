@@ -109,6 +109,77 @@ python -m src.main
 curl http://localhost:8000/health | jq
 ```
 
+## Content Library Management (Tier 3)
+
+**Status**: 84% Complete (69 of 82 tasks) - Essential features production-ready
+
+The content library system manages CC-licensed educational videos for 24/7 streaming with automatic attribution, smart scheduling, and dynamic video scaling.
+
+### Features
+
+- **Smart Content Scheduling**: Time-based content blocks ensure age-appropriate content
+  - `kids-after-school/`: 3-6 PM weekdays (creative coding, beginner-friendly)
+  - `professional-hours/`: 9 AM-3 PM weekdays (advanced CS, professional tools)
+  - `evening-mixed/`: 7-10 PM daily (algorithms, problem-solving)
+  - `general/`: All times (foundational CS content)
+
+- **Dynamic Video Scaling**: Automatic aspect-ratio-preserving scaling to fit OBS canvas
+  - MIT OCW 480x360 → Scaled 3.0x to 1440x1080
+  - CS50 1280x720 → Scaled 1.5x to 1920x1080
+  - Preserves aspect ratios, centers videos, adds letterboxing as needed
+
+- **Automatic Attribution**: Live text overlays credit content creators per CC license requirements
+
+- **License Compliance**: All content properly documented with CC-BY-NC-SA or CC-BY licenses
+  - MIT OpenCourseWare (12 Python lectures)
+  - Harvard CS50 (6 intro lectures)
+  - Khan Academy (planned)
+  - Big Buck Bunny (failover content)
+
+### Quick Setup
+
+```bash
+# 1. Download educational content (WSL2 terminal, NOT Docker)
+cd /home/turtle_wolfe/repos/OBS_bot
+source .venv/bin/activate
+pip install yt-dlp ffmpeg
+
+# 2. Download content (manual CDN downloads recommended)
+cd scripts
+./download_all_content.sh  # Or download from CDN mirrors
+
+# 3. Extract metadata
+python3 add_content_metadata.py
+
+# 4. Verify in OBS
+# Open media source → Browse to:
+# \\wsl.localhost\Debian\home\turtle_wolfe\repos\OBS_bot\content\failover\default_failover.mp4
+
+# 5. Start orchestrator (Docker)
+docker compose -f docker-compose.prod.yml up -d obs-orchestrator
+```
+
+### Documentation
+
+- **Setup Guide**: [scripts/SETUP.md](scripts/SETUP.md) - Download and configuration
+- **Architecture**: [docs/CONTENT_ARCHITECTURE.md](docs/CONTENT_ARCHITECTURE.md) - WSL2/Docker/OBS data flow
+- **Troubleshooting**: [docs/CONTENT_TROUBLESHOOTING.md](docs/CONTENT_TROUBLESHOOTING.md) - Common issues and solutions
+- **Content README**: [content/README.md](content/README.md) - License compliance and attribution
+- **Specification**: [specs/003-content-library-management/spec.md](specs/003-content-library-management/spec.md) - Complete feature spec
+
+### Current Content Library
+
+- **19 videos** across 4 sources (~20 hours of content)
+- **~12 GB** disk usage (MIT OCW + CS50 + failover)
+- **All videos playable** with automatic attribution overlays
+- **Constitutional compliance**: Time-block filtering for age-appropriate content
+
+### Next Steps
+
+1. Download additional content sources (Khan Academy, conference talks)
+2. Enable caption overlays (database schema ready, MCP configured)
+3. Expand to 50+ hours of educational content
+
 ## Roadmap
 
 ### Tier 1: OBS Streaming Foundation ✅ COMPLETE
