@@ -31,8 +31,8 @@ ENV/
 .env
 
 # OBS Bot specific
-data/*.db
-data/*.db-journal
+data/
+!data/.gitkeep
 logs/*.log
 content/*.mp4
 content/**/*.mp4
