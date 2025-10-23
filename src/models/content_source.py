@@ -1,7 +1,12 @@
-"""ContentSource domain model.
+"""ContentSource domain model (Tier 1 - DEPRECATED).
 
-Represents any media that can be displayed on stream.
-Implements entity specification from data-model.md.
+NOTE: The ContentSource class below was planned for Tier 1 but never implemented.
+The content_sources database table has been replaced by Tier 3 content library tables.
+
+ACTIVE: The enums (AgeAppropriateness, SourceType) are still used by ScheduleBlock.
+DEPRECATED: The ContentSource class is not used and does not match the database schema.
+
+For Tier 3 content library models, see src/models/content_library.py.
 """
 
 from datetime import datetime

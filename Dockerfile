@@ -7,8 +7,10 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
+# ffmpeg includes ffprobe for video metadata extraction (Tier 3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for Docker layer caching
@@ -22,6 +24,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY src/ ./src/
 COPY config/ ./config/
 COPY tests/ ./tests/
+COPY scripts/ ./scripts/
 COPY pytest.ini .
 
 # Create directories for runtime data

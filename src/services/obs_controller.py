@@ -497,6 +497,259 @@ class OBSController:
             logger.error("get_stats_failed", error=str(e))
             raise OBSConnectionError(f"Failed to get OBS stats: {e}") from e
 
+    async def set_source_visibility(
+        self,
+        scene_name: str,
+        source_name: str,
+        visible: bool
+    ) -> None:
+        """Set visibility of a source in a scene (Tier 3).
+
+        Used to show/hide attribution text overlays.
+
+        Args:
+            scene_name: Scene containing the source
+            source_name: Name of the source
+            visible: True to show, False to hide
+
+        Raises:
+            OBSConnectionError: If visibility change fails
+        """
+        ws = self._ensure_connected()
+
+        try:
+            # Get the scene item ID for the source
+            scene_items = ws.call(obs_requests.GetSceneItemList(sceneName=scene_name))
+            scene_item_id = None
+
+            for item in scene_items.getSceneItems():
+                if item.get("sourceName") == source_name:
+                    scene_item_id = item.get("sceneItemId")
+                    break
+
+            if scene_item_id is None:
+                logger.warning(
+                    "source_not_found_in_scene",
+                    scene=scene_name,
+                    source=source_name
+                )
+                return
+
+            # Set the visibility
+            ws.call(obs_requests.SetSceneItemEnabled(
+                sceneName=scene_name,
+                sceneItemId=scene_item_id,
+                sceneItemEnabled=visible
+            ))
+
+            logger.info(
+                "source_visibility_changed",
+                scene=scene_name,
+                source=source_name,
+                visible=visible
+            )
+
+        except (MessageTimeout, Exception) as e:
+            logger.error(
+                "set_source_visibility_failed",
+                scene=scene_name,
+                source=source_name,
+                error=str(e)
+            )
+            raise OBSConnectionError(
+                f"Failed to set visibility for source '{source_name}': {e}"
+            ) from e
+
+    async def update_text_content(
+        self,
+        source_name: str,
+        text: str
+    ) -> None:
+        """Update text content of existing text source (Tier 3).
+
+        Quickly updates attribution text without recreating the source.
+
+        Args:
+            source_name: Name of the text source
+            text: New text content
+
+        Raises:
+            OBSConnectionError: If text update fails
+        """
+        ws = self._ensure_connected()
+
+        try:
+            ws.call(obs_requests.SetInputSettings(
+                inputName=source_name,
+                inputSettings={"text": text},
+                overlay=True  # Only update text field, preserve other settings
+            ))
+
+            logger.info(
+                "text_content_updated",
+                source=source_name,
+                text_length=len(text)
+            )
+
+        except (MessageTimeout, Exception) as e:
+            logger.error(
+                "update_text_content_failed",
+                source=source_name,
+                error=str(e)
+            )
+            raise OBSConnectionError(
+                f"Failed to update text content for '{source_name}': {e}"
+            ) from e
+
+    async def set_source_transform(
+        self,
+        scene_name: str,
+        source_name: str,
+        x: int,
+        y: int,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0
+    ) -> None:
+        """Set position and scale of a source in a scene (Tier 3).
+
+        Used to position attribution text overlays.
+
+        Args:
+            scene_name: Scene containing the source
+            source_name: Name of the source
+            x: X position in pixels
+            y: Y position in pixels
+            scale_x: Horizontal scale multiplier
+            scale_y: Vertical scale multiplier
+
+        Raises:
+            OBSConnectionError: If transform change fails
+        """
+        ws = self._ensure_connected()
+
+        try:
+            # Get the scene item ID for the source
+            scene_items = ws.call(obs_requests.GetSceneItemList(sceneName=scene_name))
+            scene_item_id = None
+
+            for item in scene_items.getSceneItems():
+                if item.get("sourceName") == source_name:
+                    scene_item_id = item.get("sceneItemId")
+                    break
+
+            if scene_item_id is None:
+                logger.warning(
+                    "source_not_found_in_scene",
+                    scene=scene_name,
+                    source=source_name
+                )
+                return
+
+            # Set the transform
+            ws.call(obs_requests.SetSceneItemTransform(
+                sceneName=scene_name,
+                sceneItemId=scene_item_id,
+                sceneItemTransform={
+                    "positionX": x,
+                    "positionY": y,
+                    "scaleX": scale_x,
+                    "scaleY": scale_y
+                }
+            ))
+
+            logger.info(
+                "source_transform_changed",
+                scene=scene_name,
+                source=source_name,
+                x=x,
+                y=y,
+                scale_x=scale_x,
+                scale_y=scale_y
+            )
+
+        except (MessageTimeout, Exception) as e:
+            logger.error(
+                "set_source_transform_failed",
+                scene=scene_name,
+                source=source_name,
+                error=str(e)
+            )
+            raise OBSConnectionError(
+                f"Failed to set transform for source '{source_name}': {e}"
+            ) from e
+
+    async def get_canvas_resolution(self) -> tuple[int, int]:
+        """Get OBS canvas (base) resolution.
+
+        Returns:
+            Tuple of (width, height) in pixels
+
+        Raises:
+            OBSConnectionError: If query fails
+        """
+        ws = self._ensure_connected()
+
+        try:
+            video_settings = ws.call(obs_requests.GetVideoSettings())
+            width = video_settings.getBaseWidth()
+            height = video_settings.getBaseHeight()
+
+            logger.debug(
+                "canvas_resolution_queried",
+                width=width,
+                height=height
+            )
+
+            return (width, height)
+
+        except (MessageTimeout, Exception) as e:
+            logger.error("get_canvas_resolution_failed", error=str(e))
+            raise OBSConnectionError(f"Failed to get canvas resolution: {e}") from e
+
+    def calculate_video_transform(
+        self,
+        video_width: int,
+        video_height: int,
+        canvas_width: int,
+        canvas_height: int
+    ) -> tuple[int, int, float, float]:
+        """Calculate optimal transform to fit video in canvas while maintaining aspect ratio.
+
+        Args:
+            video_width: Video width in pixels
+            video_height: Video height in pixels
+            canvas_width: Canvas width in pixels
+            canvas_height: Canvas height in pixels
+
+        Returns:
+            Tuple of (x_position, y_position, x_scale, y_scale)
+        """
+        # Calculate scale factor to fit video in canvas (maintain aspect ratio)
+        scale_x_factor = canvas_width / video_width
+        scale_y_factor = canvas_height / video_height
+
+        # Use the smaller scale to ensure video fits entirely in canvas
+        scale_factor = min(scale_x_factor, scale_y_factor)
+
+        # Calculate scaled video dimensions
+        scaled_width = video_width * scale_factor
+        scaled_height = video_height * scale_factor
+
+        # Center the video in the canvas
+        x_position = int((canvas_width - scaled_width) / 2)
+        y_position = int((canvas_height - scaled_height) / 2)
+
+        logger.debug(
+            "video_transform_calculated",
+            video_resolution=f"{video_width}x{video_height}",
+            canvas_resolution=f"{canvas_width}x{canvas_height}",
+            scale_factor=round(scale_factor, 3),
+            position=f"({x_position}, {y_position})",
+            scaled_size=f"{int(scaled_width)}x{int(scaled_height)}"
+        )
+
+        return (x_position, y_position, scale_factor, scale_factor)
+
     def _ensure_connected(self) -> obsws:
         """Verify connection to OBS is active.
 

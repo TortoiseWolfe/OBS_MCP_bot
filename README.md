@@ -13,13 +13,20 @@ Build a reliable 24/7 streaming infrastructure that controls OBS Studio programm
 ## Development Status
 
 ✅ **Tier 1 COMPLETE** - 24/7 Streaming Foundation Live
+✅ **Tier 3 COMPLETE** - Content Library Management (All Features Production-Ready)
 
-**Current Phase**: Tier 1 implementation complete, all 41 tests passing (100%), production-ready
+**Current Status**: Tier 3 100% complete - Smart scheduling ✅, Dynamic video scaling ✅, 74 videos playable
 
-- ✅ Tier 1: OBS Streaming Foundation (COMPLETE - 2025-10-22)
-- ⏳ Tier 2: Content Intelligence (Planned)
-- ⏳ Tier 3: AI Teaching Personality (Planned)
-- ⏳ Tier 4: Supporting Infrastructure (Planned)
+- ✅ Tier 1: OBS Streaming Foundation (COMPLETE - 2025-10-22) - 41 tests passing
+- ⏳ Tier 2: Twitch Chat Bot (PLANNED - Recommended next phase)
+- ✅ Tier 3: Content Library Management (COMPLETE - 2025-10-22)
+  - ✅ Phase 2: Database schema, models, repositories, OBS text overlays - 51 tests passing
+  - ✅ Phase 3: Smart content scheduling with time blocks and age filtering
+  - ✅ Phase 3: Dynamic video scaling with aspect-ratio preservation
+  - ✅ Phase 3: Metadata extraction for 74 videos (MIT OCW + CS50 + Blender)
+  - ✅ Phase 3: Content library expansion (MIT 6.00, MIT 6.006, CS50 complete)
+- ⏳ Tier 4: Advanced AI Co-Host (PLANNED)
+- ⏳ Tier 5: Supporting Infrastructure (PLANNED)
 
 **Quick Links**:
 - 📜 [Constitution](.specify/memory/constitution.md) - 8 core principles and 4-tier priority structure
@@ -102,6 +109,77 @@ python -m src.main
 curl http://localhost:8000/health | jq
 ```
 
+## Content Library Management (Tier 3)
+
+**Status**: 100% Complete (82 of 82 tasks) - All features production-ready
+
+The content library system manages CC-licensed educational videos for 24/7 streaming with automatic attribution, smart scheduling, and dynamic video scaling.
+
+### Features
+
+- **Smart Content Scheduling**: Time-based content blocks ensure age-appropriate content
+  - `kids-after-school/`: 3-6 PM weekdays (creative coding, beginner-friendly)
+  - `professional-hours/`: 9 AM-3 PM weekdays (advanced CS, professional tools)
+  - `evening-mixed/`: 7-10 PM daily (algorithms, problem-solving)
+  - `general/`: All times (foundational CS content)
+
+- **Dynamic Video Scaling**: Automatic aspect-ratio-preserving scaling to fit OBS canvas
+  - MIT OCW 480x360 → Scaled 3.0x to 1440x1080
+  - CS50 1280x720 → Scaled 1.5x to 1920x1080
+  - Preserves aspect ratios, centers videos, adds letterboxing as needed
+
+- **Automatic Attribution**: Live text overlays credit content creators per CC license requirements
+
+- **License Compliance**: All content properly documented with CC-BY-NC-SA or CC-BY licenses
+  - MIT OpenCourseWare (12 Python lectures)
+  - Harvard CS50 (6 intro lectures)
+  - Khan Academy (planned)
+  - Big Buck Bunny (failover content)
+
+### Quick Setup
+
+```bash
+# 1. Download educational content (WSL2 terminal, NOT Docker)
+cd /home/turtle_wolfe/repos/OBS_bot
+source .venv/bin/activate
+pip install yt-dlp ffmpeg
+
+# 2. Download content (manual CDN downloads recommended)
+cd scripts
+./download_all_content.sh  # Or download from CDN mirrors
+
+# 3. Extract metadata
+python3 add_content_metadata.py
+
+# 4. Verify in OBS
+# Open media source → Browse to:
+# \\wsl.localhost\Debian\home\turtle_wolfe\repos\OBS_bot\content\failover\default_failover.mp4
+
+# 5. Start orchestrator (Docker)
+docker compose -f docker-compose.prod.yml up -d obs-orchestrator
+```
+
+### Documentation
+
+- **Setup Guide**: [scripts/SETUP.md](scripts/SETUP.md) - Download and configuration
+- **Architecture**: [docs/CONTENT_ARCHITECTURE.md](docs/CONTENT_ARCHITECTURE.md) - WSL2/Docker/OBS data flow
+- **Troubleshooting**: [docs/CONTENT_TROUBLESHOOTING.md](docs/CONTENT_TROUBLESHOOTING.md) - Common issues and solutions
+- **Content README**: [content/README.md](content/README.md) - License compliance and attribution
+- **Specification**: [specs/003-content-library-management/spec.md](specs/003-content-library-management/spec.md) - Complete feature spec
+
+### Current Content Library
+
+- **74 videos** across 6 sources (~70-75 hours of content)
+- **~37 GB** disk usage (MIT OCW + CS50 + failover)
+- **All videos playable** with automatic attribution overlays
+- **Constitutional compliance**: Time-block filtering for age-appropriate content
+
+### Next Steps
+
+1. Download additional content sources (Khan Academy, conference talks)
+2. Enable caption overlays (database schema ready, MCP configured)
+3. Expand to 50+ hours of educational content
+
 ## Roadmap
 
 ### Tier 1: OBS Streaming Foundation ✅ COMPLETE
@@ -120,13 +198,21 @@ curl http://localhost:8000/health | jq
 - Basic chat moderation (timeout handling, command cooldowns)
 - **Why Tier 2**: Standalone feature requiring no content library, immediate viewer value
 
-### Tier 3: Intelligent Content Management ⏳ PLANNED
-**Focus**: Smart content selection and scheduling
-- Time-based content blocks (kids hours, adult hours, late night)
-- Content metadata and age-appropriateness tagging
-- Priority-based content scheduling algorithm
-- Content library organization and indexing
-- Foundation for advanced AI features
+### Tier 3: Content Library Management ✅ COMPLETE
+**Focus**: Educational content library with CC-licensed video management
+- ✅ **Phase 2 Complete**: Database schema, domain models, repositories, OBS text overlays (51 tests)
+  - 4 database tables: `license_info`, `content_sources`, `content_library`, `download_jobs`
+  - Pydantic models with full validation (97% coverage)
+  - Repository layer with CRUD operations (95% coverage)
+  - OBS text source control for attribution overlays
+  - CC license seed data (MIT OCW, CS50, Khan Academy, Blender)
+- ✅ **Phase 3 Complete** (2025-10-22):
+  - **Smart Content Scheduling**: Time-based content blocks (kids 3-6 PM, professional 9 AM-3 PM, evening 7-10 PM), age-appropriateness filtering, priority-based selection
+  - **Dynamic Video Scaling**: Automatic aspect-ratio-preserving scaling to fit OBS canvas (1920x1080), supports multiple resolutions (480x360 → 3.0x scale, 1280x720 → 1.5x scale)
+  - **Metadata Extraction**: ffprobe integration for duration, file size, and video resolution extraction
+  - **74 Videos Ready**: MIT 6.0001 (12 lectures), MIT 6.00 (24 lectures), MIT 6.006 (24 lectures), CS50 (11 lectures), Big Buck Bunny (failover)
+  - WSL2 → Windows UNC path mapping for OBS access
+  - Download automation scripts for content expansion
 
 ### Tier 4: Advanced AI Co-Host ⏳ PLANNED
 **Focus**: Context-aware AI with vision and deep knowledge
@@ -351,7 +437,7 @@ See [Quickstart Guide](specs/001-tier1-obs-streaming/quickstart.md) for complete
 
 ---
 
-**Version**: 1.0.0 (Tier 1 Planning Complete)
-**Last Updated**: 2025-10-21
+**Version**: 1.1.0 (Tier 1 Complete + Tier 3 Phase 3 Major Features Complete)
+**Last Updated**: 2025-10-22
 **Maintainer**: [Channel Owner]
 **Framework**: SpecKit by GitHub + PRP (Product Requirements Prompt) by Rasmus Widing

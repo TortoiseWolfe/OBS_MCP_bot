@@ -115,20 +115,20 @@ As the stream owner, I need the bot to enforce chat moderation rules so that spa
 #### AI-Powered Question Answering
 
 - **FR-009**: Bot MUST respond to !ask [question] command by sending question to AI service and returning answer to chat
-- **FR-010**: Bot MUST limit AI responses to 450 characters to fit within Twitch chat message limit (500 chars) with buffer for bot name/prefix
+- **FR-010**: Bot MUST limit AI responses to 450 characters to fit within Twitch chat message limit (500 chars) with buffer for bot name/prefix. Implementation: (1) Use system prompt to instruct Claude to provide concise chat-appropriate responses (context engineering), (2) Send full user question context to Claude (no truncation of input), (3) Set max_tokens=150 as safety guardrail on output generation, (4) If response exceeds 450 chars, intelligently truncate at last complete sentence boundary and append "..."
 - **FR-011**: Bot MUST handle AI service errors gracefully (timeouts, service unavailable, rate limits) and respond with user-friendly message "AI temporarily unavailable"
 - **FR-012**: Bot MUST log all !ask questions and AI responses to persistent storage for later review and quality control
-- **FR-013**: Bot MUST detect and reject inappropriate questions (profanity, spam patterns, off-topic requests) without sending to AI service
+- **FR-013**: Bot MUST detect and reject inappropriate questions (profanity, spam patterns, off-topic requests) without sending to AI service. Implementation: **Phase 1 (MVP)** - Pattern-based spam detection: reject questions with >80% uppercase chars, >5 consecutive repeated chars, <20% alphabetic chars, or duplicate of question sent by same user within 60 seconds. Respond with "Question does not meet bot guidelines". **Phase 2 (Future)** - Add Claude-based content filtering using built-in safety features for sophisticated moderation. MVP relies on community moderation and rate limits for non-spam inappropriate content.
 - **FR-014**: Bot MUST provide educational, technically accurate responses focused on programming and computer science topics per constitutional Principle II (Educational Quality)
 
 #### Rate Limiting and Queue Management
 
 - **FR-015**: Bot MUST enforce per-user rate limit of 1 !ask command per 60 seconds to prevent spam
-- **FR-016**: Bot MUST enforce global rate limit of 100 concurrent !ask requests in queue at any time
+- **FR-016**: Bot MUST enforce global rate limit of 100 concurrent !ask requests in queue at any time. Queue overflow handling: Per-user rate limits (FR-023: max 10/hour/user) make overflow unlikely with 100 concurrent viewers. If queue reaches capacity (100 requests), reject new !ask commands with message "Bot is currently busy, please try again in a moment (queue full)". Log all queue overflow events for capacity monitoring and alerting.
 - **FR-017**: Bot MUST process !ask requests in FIFO (first-in-first-out) order when queue is active
 - **FR-018**: Bot MUST respond with cooldown message when user attempts !ask command before cooldown expires (e.g., "Please wait 30 seconds before asking another question")
 - **FR-019**: Bot MUST handle 50-100 concurrent viewers without service degradation (response times remain under 10 seconds for !ask, under 2 seconds for simple commands)
-- **FR-020**: Bot MUST log queue metrics (current queue depth, average wait time, peak queue depth) every 60 seconds for performance monitoring
+- **FR-020**: Bot MUST log queue metrics (current queue depth, average wait time, peak queue depth) every 60 seconds for performance monitoring. Implementation: (1) Structured logging to files (matches existing OBS orchestrator pattern) for historical analysis, (2) Expose metrics via `/health` endpoint for real-time monitoring and integration with existing health monitoring infrastructure. Health endpoint format: `{"status": "healthy", "queue_depth": 12, "avg_wait_time_sec": 3.2, "peak_queue_depth_1h": 45, "connected_to_twitch": true}`. Aligns with OBS orchestrator health API pattern (FR-026).
 
 #### Chat Moderation
 
@@ -141,7 +141,7 @@ As the stream owner, I need the bot to enforce chat moderation rules so that spa
 #### Integration with OBS Orchestrator
 
 - **FR-026**: Bot MUST query OBS orchestrator health API to retrieve current stream uptime for !uptime command
-- **FR-027**: Bot MUST query OBS orchestrator for stream status (online/offline) to determine if uptime is available
+- **FR-027**: Bot MUST query OBS orchestrator for stream status (online/offline) to determine if uptime is available. Response scenarios: (1) Stream is LIVE - respond with uptime in human-readable format (e.g., "Stream has been live for 2 hours 34 minutes"), (2) Stream is OFFLINE - respond with "Stream is not currently live" (chat remains active pre-stream, post-stream, and between streams), (3) Health API is DOWN - respond with "Stream status unavailable" (per FR-028)
 - **FR-028**: Bot MUST handle OBS orchestrator service unavailable gracefully (respond with "Stream status unavailable" if health API is down)
 - **FR-029**: Bot MUST cache stream status data for 10 seconds to reduce API calls during high traffic
 
