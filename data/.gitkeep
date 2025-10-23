@@ -1,0 +1,10 @@
+# Runtime Data Directory
+
+This directory contains runtime state and persistent data for the OBS Bot:
+
+- `obs_bot.db` - SQLite database with content library metadata, stream sessions, health metrics
+- `*.db-journal` - SQLite transaction logs (auto-generated)
+
+**Important**: This directory is gitignored. Database files are local runtime state and should NOT be committed to the repository.
+
+When cloning the repo, this directory will be created automatically thanks to this .gitkeep file.
