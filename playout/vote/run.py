@@ -100,14 +100,18 @@ class Stream:
         threading.Thread(target=self.read_errors, args=(self.proc,), daemon=True).start()
 
     def read_progress(self, proc):
-        last = mark = time.time()
-        mark_pos = 0.0
+        t0 = last = time.time()
+        mark_out = mark_el = 0.0
         for line in proc.stdout:
             if line.startswith("speed=") and time.time() - last > 60:
-                # speed over the last minute (ffmpeg's own figure averages in the start-up pause)
+                # speed over the last minute, worked out from ffmpeg's own running figure (which averages in the start-up pause)
                 now = time.time()
-                log(f"ffmpeg {line.strip()} since start; {(self.pos - mark_pos) / (now - mark):.3f}x over the last minute")
-                last, mark, mark_pos = now, now, self.pos
+                try:
+                    out, el = float(line.split("=")[1].strip().rstrip("x")) * (now - t0), now - t0
+                except ValueError:
+                    continue
+                log(f"ffmpeg {line.strip()} since start; {(out - mark_out) / (el - mark_el):.3f}x over the last minute")
+                last, mark_out, mark_el = now, out, el
             if line.startswith("out_time_us="):
                 try:
                     us = int(line.split("=")[1])

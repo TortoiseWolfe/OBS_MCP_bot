@@ -69,7 +69,7 @@ def test_no_clips_falls_back_to_songs_without_jams(tmp_path):
 
 def test_playlist_json_ids_match_audio_prefix():
     cfg = playlist.load()
-    assert len(cfg["songs"]) == 27 and len({s["id"] for s in cfg["songs"]}) == 27
+    assert len(cfg["songs"]) == 31 and len({s["id"] for s in cfg["songs"]}) == 31
 
 
 def test_opener_plays_once_then_the_loop():

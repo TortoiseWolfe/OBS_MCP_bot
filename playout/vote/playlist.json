@@ -34,6 +34,10 @@
     {"file": "bw-psy-3.mp3", "title": "Three Rules in Step", "group": "psy"},
     {"file": "bw-psy-3b.mp3", "title": "Three Rules in Step, take 2", "group": "psy"},
     {"file": "bw-n12.mp3",    "title": "Signal Lost, Signal Found", "group": "other"},
+    {"file": "bw-fusion-1.mp3",  "title": "Breakbeat Bots", "group": "fusion"},
+    {"file": "bw-fusion-1b.mp3", "title": "Breakbeat Bots, take 2", "group": "fusion"},
+    {"file": "bw-fusion-2.mp3",  "title": "Warehouse Wagon", "group": "fusion"},
+    {"file": "bw-fusion-2b.mp3", "title": "Warehouse Wagon, take 2", "group": "fusion"},
     {"file": "bw-jam-3b.mp3", "title": "Should the Machines Take Over? Take 2: long jam B", "group": "jam"}
   ]
 }
