@@ -26,3 +26,8 @@ python3 -m pytest -q -p no:cacheprovider tests
 The picture is 720p at 5 frames a second with a keyframe every 2 seconds (Twitch needs one). The stream key is
 read from the OBS profile named in `bwvote/ingest.py`, handed to ffmpeg, and never printed, logged or saved here.
 It appears in ffmpeg's command line, so never run `ps` with full command lines while live.
+
+## Vote log, play log and weighting
+- `state/votes.jsonl`: one line per counted `!up` / `!down`: clock time, song, seconds into that song, vote, and the viewer as a salted hash (never a name). `state/plays.jsonl`: one line per song start. Both use this machine's clock, read in the same process, so they line up without any conversion. A vote lands on the song a viewer was seeing, which is the encoder position minus `VOTE_LAG` (6 s).
+- The play order follows the votes (`bwvote/weights.py`): weight = 1 + 0.5 x (up - down), between 0.25 and 3, and only once a song has 2 or more voters. A liked song comes round several times per round, evenly spaced; a voted-down one plays every second to fourth round; none is dropped for good.
+- ffmpeg reads its audio list once, so new weights cannot apply mid-song. They apply at each encoder restart (a pause of about 10 s): at most once an hour, only if the weights changed, and only as a song is ending. The new order carries on from the song after the one that was playing.

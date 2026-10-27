@@ -79,3 +79,46 @@ def test_opener_plays_once_then_the_loop():
     assert tl.song_at(400)["title"] == "Song 1" and tl.song_at(400 + 120)["title"] == "Song 1"
     assert tl.next_song(10)["title"] == "Song 1" and tl.next_song(400 + 119)["title"] == "Song 1"
     assert tl.length == 120
+
+
+def _tally_with(votes):
+    t = Tally()
+    for song, n_up, n_down in votes:
+        for k in range(n_up):
+            t.vote(song, f"up{k}", "up")
+        for k in range(n_down):
+            t.vote(song, f"dn{k}", "down")
+    return t
+
+
+def test_weights_follow_the_votes():
+    from bwvote import weights
+    assert weights.weight(0, 0) == 1.0 and weights.weight(1, 0) == 1.0  # one stray vote moves nothing
+    assert weights.weight(3, 0) == 2.5 and weights.weight(9, 0) == 3.0
+    assert weights.weight(0, 2) == 0.25 and weights.weight(0, 9) == 0.25
+
+
+def test_sequence_plays_liked_more_and_voted_down_less_and_never_back_to_back():
+    from bwvote import weights
+    t = _tally_with([(SONGS[0]["id"], 4, 0), (SONGS[2]["id"], 0, 3)])
+    seq = [s["id"] for s in weights.sequence(SONGS, t, rounds=8)]
+    assert seq.count(SONGS[1]["id"]) == 8
+    assert seq.count(SONGS[0]["id"]) == 24 and seq.count(SONGS[2]["id"]) == 2
+    many = [dict(SONGS[0], id=f"x/{i}", file=f"{i}.mp3") for i in range(8)]  # a short list can't avoid repeats; a real one can
+    t2 = _tally_with([("x/0", 6, 0), ("x/7", 0, 3)])
+    seq2 = [s["id"] for s in weights.sequence(many, t2, rounds=12)]
+    assert seq2.count("x/0") > 2 * seq2.count("x/1") > 2 * seq2.count("x/7")
+    assert all(a != b for a, b in zip(seq2, seq2[1:]))
+
+
+def test_sequence_continues_after_the_song_that_was_playing():
+    from bwvote import weights
+    seq = weights.sequence(SONGS, Tally(), rounds=2, after_id=SONGS[1]["id"])
+    assert seq[0]["id"] == SONGS[2]["id"]
+
+
+def test_votes_are_logged_with_the_clock_and_song(tmp_path):
+    from bwvote.tally import append_jsonl
+    append_jsonl(tmp_path / "v.jsonl", {"epoch": 1.0, "vote": "up"})
+    append_jsonl(tmp_path / "v.jsonl", {"epoch": 2.0, "vote": "down"})
+    assert (tmp_path / "v.jsonl").read_text().count("\n") == 2

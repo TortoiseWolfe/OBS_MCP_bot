@@ -18,8 +18,8 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, ingest, overlay, playlist
-from bwvote.tally import Tally, load_state, parse_command, write_json
+from bwvote import background, ingest, overlay, playlist, weights
+from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))  # playout/: the shared chat reader and key redaction
@@ -28,6 +28,7 @@ STATE = HERE / "state"
 VOTE_LAG = 6.0       # seconds: what a viewer sees is about this far behind the encoder
 RESCAN_EVERY = 60    # seconds between looks at the clips folder
 MIN_RESTART_GAP = 300
+REWEIGHT_EVERY = 3600   # seconds: the earliest the encoder is restarted to apply new weights
 
 
 def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
@@ -63,6 +64,7 @@ class Stream:
         self.pos, self.pos_at = 0.0, time.time()
         self.proc, self.started_at, self.sources = None, 0.0, None
         self.opened = False
+        self.weights_sig, self.last_play = None, None
 
     # --- what is playing -------------------------------------------------
     def position(self, lag=0.0):
@@ -71,8 +73,23 @@ class Stream:
 
     def on_chat(self, user, text):
         v = parse_command(text)
-        if v and self.timeline and not self.timeline.song_at(self.position(VOTE_LAG)).get("opener"):
-            self.tally.vote(self.timeline.song_at(self.position(VOTE_LAG))["id"], user, v)
+        if not (v and self.timeline):
+            return
+        now = time.time()
+        pos = self.position(VOTE_LAG)
+        i, into = self.timeline.at(pos)
+        song = self.timeline.songs[i]
+        if song.get("opener"):
+            return
+        h = self.tally.vote(song["id"], user, v)
+        # one clock for both logs: this machine's, read here and in the play log below
+        append_jsonl(STATE / "votes.jsonl", {"epoch": round(now, 2), "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+                                             "song": song["id"], "title": song["title"], "into_song_s": round(into, 1),
+                                             "vote": v, "voter": h})
+
+    def log_play(self, now, song, kind="start"):
+        append_jsonl(STATE / "plays.jsonl", {"epoch": round(now, 2), "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+                                             "song": song["id"], "title": song["title"], "event": kind})
 
     # --- ffmpeg ----------------------------------------------------------
     def launch(self):
@@ -85,9 +102,16 @@ class Stream:
             if op and op["path"].exists():
                 lead = playlist.with_durations([op])
         self.opened = True
-        self.songs, self.timeline = chosen, playlist.Timeline(chosen, lead)
+        # the play order follows the votes as they stand now; it is fixed until the encoder next restarts
+        after = self.timeline.song_at(self.position())["id"] if self.timeline and not lead else None
+        seq = weights.sequence(chosen, self.tally, after_id=after)
+        self.songs, self.timeline = chosen, playlist.Timeline(seq, lead)
         self.sources = sorted(str(s["path"]) for s in chosen)
-        (STATE / "list.txt").write_text(playlist.concat_list(chosen, lead=lead))
+        self.weights_sig = weights.signature(chosen, self.tally)
+        self.last_play = None
+        (STATE / "list.txt").write_text(playlist.concat_list(seq, repeats=1, lead=lead))
+        odd = ", ".join(f"{k.split('/')[-1][3:-4]} x{v:g}" for k, v in weights.weights(chosen, self.tally).items() if v != 1.0)
+        log("weights: " + (odd or "all even"))
         overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs)
         cmd = build_cmd(STATE / "bg.png", STATE / "list.txt", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
@@ -159,6 +183,10 @@ class Stream:
             p = self.position()
             overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs)
             now = time.time()
+            i, into = self.timeline.at(p)
+            if i != self.last_play:
+                self.last_play = i
+                self.log_play(now - into, self.timeline.songs[i])
             if now - last_save > 10:
                 self.save(); last_save = now
             if now - last_scan > RESCAN_EVERY:
@@ -167,6 +195,13 @@ class Stream:
                 if fresh != self.sources and now - self.started_at > MIN_RESTART_GAP and p > self.timeline.lead_length:
                     log("new clips ready; restarting the encoder with the longer list")
                     self.halt_ffmpeg(); self.launch()
+            # votes changed the weights: restart the encoder (a ~10 s pause) with the new order, at most once an hour,
+            # and only when the song playing is about to end
+            if (now - self.started_at > REWEIGHT_EVERY and p > self.timeline.lead_length
+                    and weights.signature(self.songs, self.tally) != self.weights_sig
+                    and self.timeline.songs[i]["seconds"] - into < 4):
+                log("votes changed the weights; restarting the encoder with the new order")
+                self.halt_ffmpeg(); self.launch()
         self.halt_ffmpeg(); self.save()
 
 

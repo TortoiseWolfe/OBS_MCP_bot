@@ -24,6 +24,7 @@ class Tally:
     def vote(self, song_id, viewer, value):
         h = hashlib.sha256((self.salt + viewer.lower()).encode()).hexdigest()[:16]
         self.votes.setdefault(song_id, {})[h] = value  # a viewer's latest vote on a song is the one that counts
+        return h
 
     def counts(self, song_id):
         v = self.votes.get(song_id, {}).values()
@@ -65,6 +66,14 @@ class Tally:
             return ", ".join(f"{r[0]['file'][3:-4]} {r[i]}" for r in rows) or "none yet"
         return (f"{time.strftime('%-I:%M %p')} | {self.viewers()} voters | top 5 up: {fmt(self.top_up(songs), 1)}"
                 f" | top 5 down: {fmt(self.top_down(songs), 2)}")
+
+
+def append_jsonl(path, row):
+    """One line per event, appended; the vote log and the play log."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(row) + "\n")
 
 
 def write_json(path, data):
