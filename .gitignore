@@ -42,3 +42,7 @@ content/**/*.mp4
 .specify/templates/
 .specify/scripts/
 .claude/
+
+# playout renders and logs
+playout/out/
+playout/logs/

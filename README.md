@@ -441,3 +441,7 @@ See [Quickstart Guide](specs/001-tier1-obs-streaming/quickstart.md) for complete
 **Last Updated**: 2025-10-22
 **Maintainer**: [Channel Owner]
 **Framework**: SpecKit by GitHub + PRP (Product Requirements Prompt) by Rasmus Widing
+
+## Unattended band playout
+
+See [playout/README.md](playout/README.md): plays pre-rendered sets to Twitch with ffmpeg, on timers, plus a chat vote tally.
