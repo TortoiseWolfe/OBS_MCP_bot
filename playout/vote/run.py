@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Band Wagon fan-vote stream: loops song clips to Twitch, chat votes !up / !down on the song playing.
+
+usage:
+  run.py live [--bandwidthtest] [--seconds N]   push to the channel (key read from the OBS profile, never shown)
+  run.py local --out FILE --seconds N           same picture and sound into a local file, for a look
+  run.py report                                 print the hourly tally line from the saved votes
+  run.py stop                                   ask a running stream to stop
+Anything you type in chat other than !up / !down is ignored and never stored or shown.
+"""
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+from bwvote import background, ingest, overlay, playlist
+from bwvote.tally import Tally, load_state, parse_command, write_json
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))  # playout/: the shared chat reader and key redaction
+import chat_tally  # noqa: E402
+STATE = HERE / "state"
+VOTE_LAG = 6.0       # seconds: what a viewer sees is about this far behind the encoder
+RESCAN_EVERY = 60    # seconds between looks at the clips folder
+MIN_RESTART_GAP = 300
+
+
+def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
+    def dt(name, x, y, size, color, extra=""):
+        return (f"drawtext=fontfile={font}:textfile={out_dir}/{name}.txt:reload=1:expansion=none:"
+                f"x={x}:y={y}:fontsize={size}:fontcolor={color}{extra}")
+    vf = ",".join([dt("title", 690, 92, 44, "white", ":line_spacing=6"),
+                   dt("tally", 690, 300, 62, "0xFFC440"),
+                   dt("note", 690, 366, 34, "0xFFC440"),
+                   dt("top", 690, 532, 23, "white", ":line_spacing=4"),
+                   dt("next", 690, 626, 22, "0xBEE6FF"),
+                   "format=yuv420p"])
+    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-progress", "pipe:1", "-nostats",
+           "-re", "-loop", "1", "-framerate", "5", "-i", str(bg),
+           "-re", "-f", "concat", "-safe", "0", "-i", str(list_file),
+           "-vf", vf, "-r", "5",
+           "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-b:v", "1500k", "-maxrate", "1500k", "-bufsize", "3000k",
+           "-g", "10", "-keyint_min", "10", "-sc_threshold", "0",  # still picture: 5 fps, a keyframe every 2 s (Twitch needs one)
+           "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+    if seconds:
+        cmd += ["-t", str(seconds)]
+    return cmd + ["-f", fmt, target]
+
+
+class Stream:
+    def __init__(self, cfg, target, key, fmt, seconds):
+        self.cfg, self.target, self.key, self.fmt, self.seconds = cfg, target, key, fmt, seconds
+        self.tally = Tally(load_state(STATE / "tally.json"))
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.all_songs = cfg["songs"]
+        self.songs, self.timeline = [], None
+        self.pos, self.pos_at = 0.0, time.time()
+        self.proc, self.started_at, self.sources = None, 0.0, None
+        self.opened = False
+
+    # --- what is playing -------------------------------------------------
+    def position(self, lag=0.0):
+        with self.lock:
+            return max(0.0, self.pos + min(time.time() - self.pos_at, 2.0) - lag)
+
+    def on_chat(self, user, text):
+        v = parse_command(text)
+        if v and self.timeline and not self.timeline.song_at(self.position(VOTE_LAG)).get("opener"):
+            self.tally.vote(self.timeline.song_at(self.position(VOTE_LAG))["id"], user, v)
+
+    # --- ffmpeg ----------------------------------------------------------
+    def launch(self):
+        STATE.mkdir(exist_ok=True)
+        chosen = playlist.choose_sources(self.all_songs, self.cfg["clips_dir"])
+        playlist.with_durations(chosen)
+        lead = None
+        if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the loop)
+            op = playlist.opener_source(self.cfg)
+            if op and op["path"].exists():
+                lead = playlist.with_durations([op])
+        self.opened = True
+        self.songs, self.timeline = chosen, playlist.Timeline(chosen, lead)
+        self.sources = sorted(str(s["path"]) for s in chosen)
+        (STATE / "list.txt").write_text(playlist.concat_list(chosen, lead=lead))
+        overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs)
+        cmd = build_cmd(STATE / "bg.png", STATE / "list.txt", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
+        with self.lock:
+            self.pos, self.pos_at = 0.0, time.time()
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        self.started_at = time.time()
+        kinds = {s["kind"] for s in chosen}
+        log(f"ffmpeg started: {len(chosen)} {'/'.join(sorted(kinds))} items, loop {self.timeline.length:.0f}s")
+        threading.Thread(target=self.read_progress, args=(self.proc,), daemon=True).start()
+        threading.Thread(target=self.read_errors, args=(self.proc,), daemon=True).start()
+
+    def read_progress(self, proc):
+        last = mark = time.time()
+        mark_pos = 0.0
+        for line in proc.stdout:
+            if line.startswith("speed=") and time.time() - last > 60:
+                # speed over the last minute (ffmpeg's own figure averages in the start-up pause)
+                now = time.time()
+                log(f"ffmpeg {line.strip()} since start; {(self.pos - mark_pos) / (now - mark):.3f}x over the last minute")
+                last, mark, mark_pos = now, now, self.pos
+            if line.startswith("out_time_us="):
+                try:
+                    us = int(line.split("=")[1])
+                except ValueError:
+                    continue
+                with self.lock:
+                    self.pos, self.pos_at = us / 1e6, time.time()
+
+    def read_errors(self, proc):
+        last = 0
+        for line in proc.stderr:
+            line = ingest.redact(line.strip(), self.key)
+            if line and (("error" in line.lower() or "drop" in line.lower()) or time.time() - last > 600):
+                last = time.time()
+                log("ffmpeg: " + line[:200])
+
+    def halt_ffmpeg(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.send_signal(signal.SIGINT)
+            try:
+                self.proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+    # --- main loop -------------------------------------------------------
+    def save(self):
+        write_json(STATE / "tally.json", self.tally.state())
+        if self.cfg.get("export_to"):
+            write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs))
+
+    def run(self):
+        threading.Thread(target=chat_tally.read_chat, args=(self.cfg["channel"], self.on_chat, self.stop), daemon=True).start()
+        self.launch()
+        last_save = last_scan = time.time()
+        while not self.stop.is_set():
+            time.sleep(1)
+            rc = self.proc.poll()
+            if rc is not None:
+                if self.seconds and rc == 0:
+                    break
+                log(f"ffmpeg ended rc={rc}; restarting in 5 s")
+                time.sleep(5)
+                self.launch()
+                continue
+            p = self.position()
+            overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs)
+            now = time.time()
+            if now - last_save > 10:
+                self.save(); last_save = now
+            if now - last_scan > RESCAN_EVERY:
+                last_scan = now
+                fresh = sorted(str(s["path"]) for s in playlist.choose_sources(self.all_songs, self.cfg["clips_dir"]))
+                if fresh != self.sources and now - self.started_at > MIN_RESTART_GAP and p > self.timeline.lead_length:
+                    log("new clips ready; restarting the encoder with the longer list")
+                    self.halt_ffmpeg(); self.launch()
+        self.halt_ffmpeg(); self.save()
+
+
+def log(msg):
+    print(f"{time.strftime('%-I:%M:%S %p')} {msg}", flush=True)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("mode", choices=["live", "local", "report", "stop"])
+    ap.add_argument("--bandwidthtest", action="store_true")
+    ap.add_argument("--channel", help="channel to read chat from (default: playlist.json)")
+    ap.add_argument("--key-file", help="file holding just the stream key (default: the OBS profile)")
+    ap.add_argument("--seconds", type=int)
+    ap.add_argument("--no-opener", action="store_true", help="skip the opening song (restarting a show already under way)")
+    ap.add_argument("--out")
+    ap.add_argument("--playlist", default=str(HERE / "playlist.json"))
+    a = ap.parse_args()
+    cfg = playlist.load(a.playlist)
+    cfg["clips_dir"] = cfg["audio_dir"] + "/clips"
+    if a.channel:
+        cfg["channel"] = a.channel
+    STATE.mkdir(exist_ok=True)
+    if a.mode == "report":
+        print(Tally(load_state(STATE / "tally.json")).report_line(cfg["songs"]))
+        return
+    pidfile = STATE / "run.pid"
+    if a.mode == "stop":
+        os.kill(int(pidfile.read_text()), signal.SIGTERM)
+        return
+    if pidfile.exists():
+        try:
+            os.kill(int(pidfile.read_text()), 0)
+            sys.exit("already running (state/run.pid)")
+        except (OSError, ValueError):
+            pass
+    pidfile.write_text(str(os.getpid()))
+    background.build(cfg["cover"], cfg["font"], STATE / "bg.png")
+    if a.mode == "live":
+        target, key = ingest.load(a.bandwidthtest, a.key_file)
+        fmt = "flv"
+    else:
+        target, key, fmt = a.out, "", "flv"
+    cfg["font"] = str(Path(cfg["font"]).expanduser())
+    if a.no_opener:
+        cfg.pop("opener", None)
+    s = Stream(cfg, target, key, fmt, a.seconds)
+    signal.signal(signal.SIGTERM, lambda *_: s.stop.set())
+    signal.signal(signal.SIGINT, lambda *_: s.stop.set())
+    try:
+        s.run()
+    finally:
+        pidfile.unlink(missing_ok=True)
+        log("stopped")
+
+
+if __name__ == "__main__":
+    main()

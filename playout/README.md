@@ -11,6 +11,7 @@ controller in `src/` needs a running OBS to drive; this folder sends a pre-rende
 | `chat_tally.py` | Read-only anonymous chat reader (justinfan login, no token); counts "1" and "2" into a JSON file |
 | `is_live.sh` | `is_live.sh scripthammer` prints live or offline |
 | `arm_timers.sh` | `arm_timers.sh thu` or `sat` arms the push and tally timers; a second arm is refused |
+| `vote/` | Live fan-vote stream: loops the Band Wagon clips with the song title and a live `!up` / `!down` tally on screen. Reads chat through `chat_tally.read_chat` and hides the key with `push.redact`; see `vote/README.md` |
 
 ## Run it
 

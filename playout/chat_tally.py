@@ -10,6 +10,7 @@ import json
 import random
 import socket
 import ssl
+import threading
 import time
 from pathlib import Path
 
@@ -45,9 +46,13 @@ class Tally:
         tmp = Path(str(path) + ".tmp"); tmp.write_text(json.dumps(out, indent=2)); tmp.replace(path)
 
 
-def run(outfile, seconds, channel, host, port, tls):
-    t = Tally(); started = time.strftime("%Y-%m-%d %H:%M:%S"); end = time.time() + seconds; nextw = 0
-    while time.time() < end:
+def read_chat(channel, on_message, stop, host="irc.chat.twitch.tv", port=6697, tls=True, on_tick=None):
+    """Read-only chat loop shared by the take tally and the vote stream.
+
+    Blocks until `stop` (a threading.Event) is set and reconnects after a drop; calls on_message(user, text) per
+    chat line and on_tick() after every read.
+    """
+    while not stop.is_set():
         try:
             s = socket.create_connection((host, port), timeout=30)
             if tls:
@@ -55,10 +60,10 @@ def run(outfile, seconds, channel, host, port, tls):
             s.settimeout(5)
             s.sendall(f"PASS SCHMOOPIIE\r\nNICK justinfan{random.randint(10000, 99999)}\r\nJOIN #{channel}\r\n".encode())
             buf = b""
-            while time.time() < end:
+            while not stop.is_set():
                 try:
                     data = s.recv(4096)
-                except TimeoutError:
+                except (TimeoutError, socket.timeout):
                     data = None
                 if data == b"":
                     break  # server closed: reconnect
@@ -71,12 +76,25 @@ def run(outfile, seconds, channel, host, port, tls):
                             s.sendall(b"PONG :tmi.twitch.tv\r\n")
                         m = parse_privmsg(line)
                         if m:
-                            t.feed(*m)
-                if time.time() >= nextw:
-                    t.write(outfile, channel, started); nextw = time.time() + 5
+                            on_message(*m)
+                if on_tick:
+                    on_tick()
             s.close()
         except OSError:
-            time.sleep(5)
+            stop.wait(5)
+
+
+def run(outfile, seconds, channel, host, port, tls):
+    t = Tally(); started = time.strftime("%Y-%m-%d %H:%M:%S")
+    stop = threading.Event()
+    timer = threading.Timer(seconds, stop.set); timer.daemon = True; timer.start()
+    next_write = [0.0]
+
+    def tick():
+        if time.time() >= next_write[0]:
+            t.write(outfile, channel, started); next_write[0] = time.time() + 5
+
+    read_chat(channel, t.feed, stop, host, port, tls, on_tick=tick)
     t.write(outfile, channel, started)
 
 
