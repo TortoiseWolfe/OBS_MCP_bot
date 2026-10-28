@@ -193,3 +193,33 @@ def test_render_puts_the_announcement_on_the_note_line(tmp_path):
     assert (tmp_path / "note.txt").read_text() == "6 PM show: twitch.tv/scripthammer"
     overlay.render(tmp_path, song, song, Tally(), [song])
     assert (tmp_path / "note.txt").read_text() == " "
+
+
+def test_each_song_gets_its_own_cover_and_falls_back_to_the_show_cover(tmp_path):
+    from PIL import Image
+    from bwvote import covers
+    for n in ("a.png", "default.png"):
+        Image.new("RGB", (8, 8)).save(tmp_path / n)
+    (tmp_path / "song-covers.json").write_text('{"bw-n01.mp3": "a.png", "bw-n02": "/nowhere/gone.png"}')
+    found = covers.load(tmp_path / "song-covers.json")
+    assert covers.cover_for(SONGS[0], found, tmp_path / "default.png") == tmp_path / "a.png"      # its own, path beside the json
+    assert covers.cover_for(SONGS[1], found, tmp_path / "default.png") == tmp_path / "default.png"  # listed, file missing
+    assert covers.cover_for(SONGS[2], found, tmp_path / "default.png") == tmp_path / "default.png"  # not listed
+    assert covers.load(tmp_path / "missing.json") == {}                                              # no file yet: everything uses the default
+    (tmp_path / "bad.json").write_text("{nope")
+    assert covers.load(tmp_path / "bad.json") == {}
+
+
+def test_the_picture_is_re_read_every_frame_and_replaced_whole(tmp_path):
+    import run
+    from bwvote import background
+    cmd = run.build_cmd(tmp_path / "bg.png", "l.txt", tmp_path, "f.ttf", "x", "flv")
+    i = cmd.index(str(tmp_path / "bg.png"))
+    assert cmd[i - 8:i] == ["-re", "-f", "image2", "-loop", "1", "-framerate", "5", "-i"]  # -f image2 is what makes ffmpeg re-read the file
+    font = Path("~/repos/hub/internship/showcase/art/band-wagon/fonts/LilitaOne-Regular.ttf").expanduser()
+    if font.exists():
+        from PIL import Image
+        Image.new("RGB", (64, 64), "red").save(tmp_path / "c.png")
+        background.build(tmp_path / "c.png", font, tmp_path / "bg.png")
+        assert Image.open(tmp_path / "bg.png").size == (1280, 720)
+        assert [p.name for p in tmp_path.glob("bg*")] == ["bg.png"]  # no half-written file left beside it

@@ -21,7 +21,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, ingest, overlay, playlist, viewers, weights
+from bwvote import background, covers, ingest, overlay, playlist, viewers, weights
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -42,7 +42,7 @@ def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
                    dt("next", 690, 626, 22, "0xBEE6FF"),
                    "format=yuv420p"])
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-progress", "pipe:1", "-nostats",
-           "-re", "-loop", "1", "-framerate", "5", "-i", str(bg),
+           "-re", "-f", "image2", "-loop", "1", "-framerate", "5", "-i", str(bg),  # -f image2: re-read every frame, so a new bg.png shows at once
            "-re", "-f", "concat", "-safe", "0", "-i", str(list_file),
            "-vf", vf, "-r", "5",
            "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-b:v", "1500k", "-maxrate", "1500k", "-bufsize", "3000k",
@@ -65,6 +65,17 @@ class Stream:
         self.proc, self.started_at = None, 0.0
         self.opened = False
         self.last_play = None
+        self.cover_now = None
+
+    def show_cover(self, song):
+        """Put the song's own cover (beside Now Playing) into bg.png, which ffmpeg re-reads every frame."""
+        cover = covers.cover_for(song, covers.load(self.cfg.get("song_covers", "")), self.cfg["cover"])
+        if cover != self.cover_now:
+            try:
+                background.build(cover, self.cfg["font"], STATE / "bg.png")
+                self.cover_now = cover
+            except Exception as e:  # a bad picture must never stop the stream: keep the one on screen
+                log(f"cover {cover.name} not shown: {e}")
 
     def announce(self):
         return overlay.active_announcement(self.cfg.get("announcements"))
@@ -114,6 +125,7 @@ class Stream:
         odd = ", ".join(f"{k.split('/')[-1][3:-4]} x{v:g}" for k, v in weights.weights(chosen, self.tally).items() if v != 1.0)
         log("weights: " + (odd or "all even"))
         overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
+        self.show_cover(self.timeline.song_at(0))
         cmd = build_cmd(STATE / "bg.png", STATE / "list.txt", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
             self.pos, self.pos_at = 0.0, time.time()
@@ -187,6 +199,7 @@ class Stream:
             i, into = self.timeline.at(p)
             if i != self.last_play:
                 self.last_play = i
+                self.show_cover(self.timeline.songs[i])
                 self.log_play(now - into, self.timeline.songs[i])
             if now - last_save > 10:
                 self.save(); last_save = now
