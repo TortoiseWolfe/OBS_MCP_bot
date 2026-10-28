@@ -24,7 +24,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, catalog, covers, ingest, overlay, picker, pipe, playlist, viewers
+from bwvote import background, catalog, covers, ingest, meter, overlay, picker, pipe, playlist, viewers
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -151,18 +151,17 @@ class Stream:
 
     # --- the encoder's own numbers ---------------------------------------
     def read_progress(self, proc):
-        t0 = last = time.time()
-        mark_out = mark_el = 0.0
+        last = time.time()
+        window = meter.Window()
         for line in proc.stdout:
             if line.startswith("speed=") and time.time() - last > 60:
-                # speed over the last minute, worked out from ffmpeg's own running figure (which averages in the start-up pause)
-                now = time.time()
-                try:
-                    out, el = float(line.split("=")[1].strip().rstrip("x")) * (now - t0), now - t0
-                except ValueError:
-                    continue
-                log(f"ffmpeg {line.strip()} since start; {(out - mark_out) / (el - mark_el):.3f}x over the last minute")
-                last, mark_out, mark_el = now, out, el
+                # ffmpeg's own figure averages everything since it started; the last-minute figure comes from the output position
+                # and the clock time at which it was read, one mark a minute apart
+                with self.lock:
+                    pos, pos_at = self.pos, self.pos_at
+                got = window.speed(pos, pos_at) if pos_at else None
+                last = time.time()
+                log(f"ffmpeg {line.strip()} since start; " + (f"{got:.3f}x over the last minute" if got is not None else "no last-minute figure yet"))
             if line.startswith("out_time_us="):
                 try:
                     us = int(line.split("=")[1])

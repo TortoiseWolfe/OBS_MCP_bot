@@ -332,3 +332,12 @@ def test_a_factory_take_s_votes_also_count_toward_its_song_for_the_factory_to_st
     out = t.export(songs)["songs"]
     assert out["band-wagon/takes/story-1-t1"]["up"] == 2
     assert out["story-1"]["up"] == 2 and out["story-1"]["down"] == 1
+
+
+def test_the_last_minute_speed_is_worked_out_from_fresh_marks_not_the_since_start_average():
+    from bwvote import meter
+    w = meter.Window()
+    assert w.speed(0.5, 100.0) is None                     # the first mark only sets the window
+    assert abs(w.speed(60.5, 160.0) - 1.0) < 1e-9          # a real-time minute
+    assert abs(w.speed(60.5 + 54.0, 220.0) - 0.9) < 1e-9   # a slow minute shows as 0.9, whatever the since-start average says
+    assert w.speed(115.0, 220.0) is None                   # no time passed: no figure rather than a divide by zero
