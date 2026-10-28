@@ -30,14 +30,15 @@ It appears in ffmpeg's command line, so never run `ps` with full command lines w
 ## Pipe player
 One ffmpeg encodes the show for hours. Its sound arrives on a continuous pipe (`bwvote/pipe.py`): a feeder thread decodes each take with its own ffmpeg to raw 48 kHz stereo and writes it into the encoder's stdin, counting bytes so each song's start time is exact. Right after a take starts, the player picks the next one (`bwvote/picker.py`), so no restart is needed to change the order, add a take or apply votes. If one take will not decode it is skipped and logged.
 
-Catalog (`bwvote/catalog.py`): the songs in `playlist.json` plus `takes-catalog.json` (path under `"catalog"` in `playlist.json`), re-read at every pick:
+Catalog (`bwvote/catalog.py`): the songs in `playlist.json` plus the take factory's own catalog (`beatboard/tools/factory/take_factory.py`), read exactly as the factory writes it, from the path under `"catalog"` in `playlist.json` (`<band-wagon audio>/takes/catalog.json`), re-read at every pick. There is no second catalog. The factory's file is a list, one entry per finished take; the player uses `take`, `song`, `path` and `kind`:
 
 ```json
-{"takes": [{"file": "bw-n13.mp3", "title": "Moonlit Marching Song", "group": "batch3", "feature": false, "hold": false}]}
+[{"song": "story-1", "take": "story-1-t3", "take_n": 3, "style": "...", "seed": 12345, "bpm": 76, "seconds": 215.0, "path": "/abs/story-1-t3.mp3", "kind": "story"}]
 ```
 
-- A catalog file is offered only after it has been unchanged for 15 s and is at least 5 s long (ffprobe), so a file still being written is never played.
-- No title: shown as "Take <file name without bw- and .mp3>". `hold: true` keeps a take off air.
+- Titles come from `songs.json` beside it (the factory's registry): "The Riders, take 3". The picture shows that title.
+- A take is offered only after its file has been unchanged for 15 s and is at least 5 s long (ffprobe), so one still being written is never played. `"hold": true` on an entry keeps it off air.
+- Votes are kept per take. In `votes-twitch.json` each take is listed, and its votes are also added to its song (key = the factory's song id), which is what the factory reads to decide which song to render more of.
 - Picker: no take repeats until every take has played (a cycle). Votes decide the order inside a cycle: weight = 1 + 0.5 x (up - down), between 0.25 and 3, once a take has 2 or more voters. A never-heard take counts three times (new ones come soon). Take weights below 1 sit a cycle out now and then; none is dropped for good. `state/picker.json` carries the cycle across restarts.
 - Votes are recorded per take, so a new take starts at zero.
 

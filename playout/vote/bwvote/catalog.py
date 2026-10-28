@@ -1,9 +1,11 @@
-"""The take catalog: the songs in playlist.json plus takes-catalog.json, which the takes lane writes as new takes land.
+"""The take catalog: the songs in playlist.json plus the take factory's own catalog, read as the factory writes it.
 
-takes-catalog.json is {"takes": [{"file": "bw-lore-1.mp3", "title": "Nell at Millrace Landing", "group": "lore"}, ...]}
-(a bare list works too). Optional per take: "feature" (see weights.py) and "hold": true to keep a take off the air.
-It is read again at every song change, so a take that lands is on the air within a song or two, no restart.
-A catalog take is offered only once its file has stopped changing (a copy still in progress would play as a cut-off song).
+The factory (beatboard/tools/factory/take_factory.py) keeps a JSON list at <band-wagon audio>/takes/catalog.json, one entry per
+finished take: {"song": "story-1", "take": "story-1-t3", "take_n": 3, "style": "...", "seed": 12345, "bpm": 76, "seconds": 215.0,
+"path": "/abs/path/story-1-t3.mp3", "kind": "story", ...}. Its songs.json beside it names each song ({"id", "title", ...}).
+A take is titled "<song title>, take 3". Optional on an entry: "hold": true keeps it off the air.
+The file is read again at every song change, so a take that lands is on the air within a song or two, no restart.
+A take is offered only once its file has stopped changing (a copy still in progress would play as a cut-off song).
 """
 import json
 import time
@@ -16,17 +18,30 @@ MIN_SECONDS = 5.0  # shorter than this is not a song
 _probed = {}       # (path, mtime) -> seconds, so each new file is probed once
 
 
-def _entries(path):
+def _read(path):
     try:
-        raw = json.loads(Path(path).expanduser().read_text())
+        return json.loads(Path(path).expanduser().read_text())
     except (OSError, ValueError):
+        return None
+
+
+def _entries(path):
+    raw = _read(path)
+    if not isinstance(raw, list):
         return []
-    raw = raw.get("takes", []) if isinstance(raw, dict) else raw
-    return [e for e in raw if isinstance(e, dict) and e.get("file") and not e.get("hold")]
+    return [e for e in raw if isinstance(e, dict) and e.get("take") and e.get("path") and not e.get("hold")]
 
 
-def _title(entry):
-    return entry.get("title") or "Take " + Path(entry["file"]).stem.removeprefix("bw-")
+def _titles(catalog_path):
+    songs = _read(Path(catalog_path).expanduser().with_name("songs.json"))
+    return {s["id"]: s.get("title") for s in songs if isinstance(s, dict) and s.get("id")} if isinstance(songs, list) else {}
+
+
+def _title(entry, titles):
+    song = entry.get("song") or ""
+    name = titles.get(song) or song.replace("-", " ").title() or "Take"
+    suffix = entry["take"][len(song) + 1:] if entry["take"].startswith(song + "-") else entry["take"]
+    return f"{name}, take {suffix.removeprefix('t')}"
 
 
 def _playable(path, now, probe):
@@ -50,13 +65,14 @@ def load(cfg, now=None, probe=playlist.probe_seconds):
     now = now or time.time()
     songs = [s for s in cfg["songs"] if s["path"].is_file()]
     seen = {s["id"] for s in cfg["songs"]}
-    base = Path(cfg["audio_dir"]).expanduser()
-    for e in _entries(cfg.get("catalog", "")):
-        sid = cfg["audio_prefix"] + e["file"]
+    catalog_path = cfg.get("catalog", "")
+    titles = _titles(catalog_path) if catalog_path else {}
+    for e in _entries(catalog_path):
+        sid = cfg["audio_prefix"] + "takes/" + e["take"]
         if sid in seen:
             continue
         seen.add(sid)
-        path = base / e["file"]
+        path = Path(e["path"]).expanduser()
         if _playable(path, now, probe):
-            songs.append(dict(e, id=sid, path=path, title=_title(e)))
+            songs.append(dict(e, id=sid, path=path, file=path.name, title=_title(e, titles), group=e.get("kind", "take")))
     return songs

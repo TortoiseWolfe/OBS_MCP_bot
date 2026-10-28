@@ -59,11 +59,15 @@ class Tally:
         for s in songs:
             up, down = self.counts(s["id"])
             out["songs"][s["id"]] = {"title": s["title"], "up": up, "down": down}
+            if s.get("song"):  # a factory take also counts toward its song, which is what the factory steers by
+                tot = out["songs"].setdefault(s["song"], {"title": s["song"], "up": 0, "down": 0})
+                tot["up"] += up
+                tot["down"] += down
         return out
 
     def report_line(self, songs):
         def fmt(rows, i):
-            return ", ".join(f"{r[0]['file'][3:-4]} {r[i]}" for r in rows) or "none yet"
+            return ", ".join(f"{r[0]['file'].removesuffix('.mp3').removeprefix('bw-')} {r[i]}" for r in rows) or "none yet"
         return (f"{time.strftime('%-I:%M %p')} | {self.viewers()} voters | top 5 up: {fmt(self.top_up(songs), 1)}"
                 f" | top 5 down: {fmt(self.top_down(songs), 2)}")
 

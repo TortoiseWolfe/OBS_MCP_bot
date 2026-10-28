@@ -5,7 +5,7 @@
   "audio_prefix": "band-wagon/",
   "cover": "~/repos/hub/internship/showcase/art/band-wagon/cover-3-night-600.png",
   "song_covers": "~/repos/hub/internship/showcase/art/band-wagon/song-covers.json",
-  "catalog": "~/repos/hub/internship/showcase/audio/band-wagon/takes-catalog.json",
+  "catalog": "~/repos/hub/internship/showcase/audio/band-wagon/takes/catalog.json",
   "font": "~/repos/hub/internship/showcase/art/band-wagon/fonts/LilitaOne-Regular.ttf",
   "export_to": "~/repos/hub/internship/showcase/audio/band-wagon/votes-twitch.json",
   "opener": {"file": "bw-jam-2.mp3", "label": "Opening the show Thursday"},

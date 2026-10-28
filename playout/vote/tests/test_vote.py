@@ -200,32 +200,48 @@ def test_the_picture_is_re_read_every_frame_and_replaced_whole(tmp_path):
 
 # --- the take catalog, the picker, the audio pipe ---------------------------------------------------------------
 
-def _cfg(tmp_path, takes=None, n=3):
+def _cfg(tmp_path, takes=None, n=3, titles=None):
+    import json
     for i in range(1, n + 1):
         (tmp_path / f"bw-n0{i}.mp3").write_bytes(b"x")
-    cfg = {"audio_dir": str(tmp_path), "audio_prefix": "band-wagon/", "catalog": str(tmp_path / "takes-catalog.json"),
+    cfg = {"audio_dir": str(tmp_path), "audio_prefix": "band-wagon/", "catalog": str(tmp_path / "takes" / "catalog.json"),
            "songs": [{"file": f"bw-n0{i}.mp3", "title": f"Song {i}", "id": f"band-wagon/bw-n0{i}.mp3",
                       "path": tmp_path / f"bw-n0{i}.mp3"} for i in range(1, n + 1)]}
     if takes is not None:
-        (tmp_path / "takes-catalog.json").write_text(__import__("json").dumps({"takes": takes}))
+        (tmp_path / "takes").mkdir(exist_ok=True)
+        (tmp_path / "takes" / "catalog.json").write_text(json.dumps(takes))
+    if titles is not None:
+        (tmp_path / "takes" / "songs.json").write_text(json.dumps(titles))
     return cfg
+
+
+def _take(tmp_path, song, n, suffix="", kind="story"):
+    """A catalog entry shaped exactly as take_factory.py writes it."""
+    path = tmp_path / "takes" / song / f"{song}-t{n}{suffix}.mp3"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    return {"song": song, "take": f"{song}-t{n}{suffix}", "take_n": n, "style": "slow", "seed": 10001, "bpm": 76,
+            "key": "A minor", "seconds": 215.0, "path": str(path), "lufs": -16.1, "kind": kind, "made": "2026-10-28 01:00:00"}
 
 
 def test_a_take_joins_the_catalog_once_it_has_settled_and_not_while_held_or_unreadable(tmp_path):
     import os
     from bwvote import catalog
-    cfg = _cfg(tmp_path, [{"file": "bw-lore-1.mp3", "title": "Nell at Millrace Landing"}, {"file": "bw-lore-2.mp3"},
-                          {"file": "bw-lore-3.mp3", "hold": True}, {"file": "bw-lore-4.mp3"}, {"file": "bw-n01.mp3"}])
-    for n in (1, 2, 3, 4):
-        (tmp_path / f"bw-lore-{n}.mp3").write_bytes(b"x")
+    takes = [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2), _take(tmp_path, "story-1", 3),
+             _take(tmp_path, "bike-a", 0, "b", "bike"), _take(tmp_path, "rave-1", 0, kind="rave")]
+    takes[2]["hold"] = True
+    cfg = _cfg(tmp_path, takes, titles=[{"id": "story-1", "title": "Nell at Millrace Landing"}])
     old = 1_000_000.0
-    os.utime(tmp_path / "bw-lore-1.mp3", (old, old)); os.utime(tmp_path / "bw-lore-3.mp3", (old, old)); os.utime(tmp_path / "bw-lore-4.mp3", (old, old))
-    probe = lambda p: 2.0 if p.name == "bw-lore-4.mp3" else 150.0  # lore-4 is a 2 s stub
+    for t in (takes[0], takes[2], takes[3], takes[4]):
+        os.utime(t["path"], (old, old))
+    probe = lambda p: 2.0 if "bike" in p.name else 150.0  # the bike take is a 2 s stub
     got = catalog.load(cfg, now=old + 60, probe=probe)
-    titles = [s["title"] for s in got]
-    assert titles == ["Song 1", "Song 2", "Song 3", "Nell at Millrace Landing"]  # lore-2 just written, 3 held, 4 too short, n01 not doubled
-    assert got[-1]["id"] == "band-wagon/bw-lore-1.mp3" and got[-1]["file"] == "bw-lore-1.mp3"
-    assert catalog.load(cfg, now=time_now() + 60, probe=probe)[-1]["title"] == "Take lore-2"  # untitled: named from the file
+    assert [s["title"] for s in got] == ["Song 1", "Song 2", "Song 3", "Nell at Millrace Landing, take 1", "Rave 1, take 0"]
+    # take 2 just written, take 3 held, the stub too short
+    assert got[3]["id"] == "band-wagon/takes/story-1-t1" and got[3]["file"] == "story-1-t1.mp3" and got[3]["group"] == "story"
+    catalog._probed.clear()  # the stub was probed once and remembered; a file that grew is probed again in real life (new mtime)
+    later = [s["title"] for s in catalog.load(cfg, now=time_now() + 60, probe=lambda p: 150.0)]
+    assert "Nell at Millrace Landing, take 2" in later and "Bike A, take 0b" in later and not any("take 3" in t for t in later)
     (tmp_path / "x").mkdir()
     assert len(catalog.load(_cfg(tmp_path / "x"))) == 3  # no catalog file: just playlist.json
 
@@ -302,3 +318,17 @@ def test_the_pipe_carries_song_after_song_gaplessly_and_skips_one_that_will_not_
     assert any("skipped s3" in m for m in picks)
     assert tl.starts[:3] == [0.0, 2.0, 4.0]  # exact: every byte counted, no gap and no overlap
     assert f.started.is_set() and tl.upcoming is not None
+
+
+def test_a_factory_take_s_votes_also_count_toward_its_song_for_the_factory_to_steer_by(tmp_path):
+    from bwvote import catalog
+    cfg = _cfg(tmp_path, [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2)])
+    import os
+    for t in (tmp_path / "takes" / "story-1").iterdir():
+        os.utime(t, (1_000_000.0, 1_000_000.0))
+    songs = catalog.load(cfg, now=1_000_100.0, probe=lambda p: 150.0)[3:]
+    t = Tally()
+    t.vote(songs[0]["id"], "a", "up"); t.vote(songs[0]["id"], "b", "up"); t.vote(songs[1]["id"], "a", "down")
+    out = t.export(songs)["songs"]
+    assert out["band-wagon/takes/story-1-t1"]["up"] == 2
+    assert out["story-1"]["up"] == 2 and out["story-1"]["down"] == 1
