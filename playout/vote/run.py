@@ -24,7 +24,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, catalog, covers, ingest, meter, overlay, picker, pipe, playlist, viewers
+from bwvote import background, catalog, covers, ingest, meter, overlay, picker, pipe, playlist, slideshow, viewers
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -73,6 +73,7 @@ class Stream:
         self.last_play = None
         self.cover_now = None
         self.cover_idx = None
+        self.slide_now = None
 
     def show_cover(self, song):
         """Put the song's own cover (beside Now Playing) into bg.png, which ffmpeg re-reads every frame."""
@@ -139,6 +140,7 @@ class Stream:
         self.timeline = pipe.LiveTimeline()
         self.last_play = None
         self.cover_idx = None
+        self.slide_now = None
         cmd = build_cmd(STATE / "bg.png", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
             self.pos, self.pos_at = 0.0, time.time()
@@ -230,14 +232,28 @@ class Stream:
                 continue
             p = self.position()
             pv = self.picture_position()
-            overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce())
+            slide = slideshow.current(self.cfg.get("slideshow"))
+            if slide:  # a show's slideshow window: the whole picture is the image, no vote words over it; votes and plays go on as usual
+                if slide != self.slide_now:
+                    try:
+                        slideshow.build(slide, STATE / "bg.png")
+                        slideshow.blank_text(STATE)
+                        self.slide_now = slide
+                    except Exception as e:  # a bad picture must never stop the stream
+                        log(f"slide {slide.name} not shown: {e}")
+                        self.slide_now = slide
+            else:
+                if self.slide_now:  # the window ended: the song's cover and the words come back
+                    self.slide_now = None
+                    self.cover_now = self.cover_idx = None
+                overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce())
             now = time.time()
             i, into = self.timeline.at(p)
             if i != self.last_play:
                 self.last_play = i
                 self.log_play(now - into, self.timeline.songs[i])
             iv = self.timeline.at(pv)[0]
-            if iv != self.cover_idx:
+            if iv != self.cover_idx and not self.slide_now:
                 self.cover_idx = iv
                 self.show_cover(self.timeline.songs[iv])
             if now - last_save > 10:

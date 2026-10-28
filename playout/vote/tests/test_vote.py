@@ -354,3 +354,23 @@ def test_the_last_minute_speed_is_worked_out_from_fresh_marks_not_the_since_star
     assert abs(w.speed(60.5, 160.0) - 1.0) < 1e-9          # a real-time minute
     assert abs(w.speed(60.5 + 54.0, 220.0) - 0.9) < 1e-9   # a slow minute shows as 0.9, whatever the since-start average says
     assert w.speed(115.0, 220.0) is None                   # no time passed: no figure rather than a divide by zero
+
+
+def test_slideshow_cycles_inside_its_windows_only(tmp_path):
+    from datetime import datetime, timezone
+    from PIL import Image
+    from bwvote import slideshow
+    cfg = {"images": [str(tmp_path / f"{n}.png") for n in "abc"], "seconds": 25,
+           "windows": [{"from": "2026-10-29T18:00:00-04:00", "until": "2026-10-29T19:00:00-04:00"}]}
+    t0 = datetime(2026, 10, 29, 22, 0, 0, tzinfo=timezone.utc)  # 6:00 PM Eastern
+    assert slideshow.current(cfg, datetime(2026, 10, 29, 21, 59, 59, tzinfo=timezone.utc)) is None
+    assert slideshow.current(cfg, datetime(2026, 10, 29, 23, 0, 0, tzinfo=timezone.utc)) is None
+    seen = [slideshow.current(cfg, datetime.fromtimestamp(t0.timestamp() + k * 25 + 1, timezone.utc)).name for k in range(6)]
+    assert len(set(seen)) == 3 and seen[:3] == seen[3:]  # three pictures, each held 25 s, looping
+    assert slideshow.current(cfg, datetime.fromtimestamp(t0.timestamp() + 2, timezone.utc)) == slideshow.current(cfg, datetime.fromtimestamp(t0.timestamp() + 20, timezone.utc))
+    Image.new("RGB", (900, 1200), (200, 30, 30)).save(tmp_path / "a.png")  # a tall flyer is centred whole, never cropped
+    slideshow.build(tmp_path / "a.png", tmp_path / "bg.png")
+    out = Image.open(tmp_path / "bg.png")
+    assert out.size == (1280, 720) and out.getpixel((640, 360)) == (200, 30, 30) and out.getpixel((5, 360)) == (0, 0, 0)
+    slideshow.blank_text(tmp_path)
+    assert (tmp_path / "title.txt").read_text() == " "
