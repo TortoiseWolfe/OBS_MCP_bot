@@ -4,6 +4,8 @@ A song needs MIN_VOTES distinct voters before its votes count (one stray vote mu
 1 + 0.5 x (up - down), kept between MIN_WEIGHT and MAX_WEIGHT. A weight of 2 means two plays per round of the
 list; 0.5 means one play every second round; 0.25 one every fourth. Nothing is ever dropped for good.
 """
+from datetime import datetime, timezone
+
 MIN_VOTES = 2
 MIN_WEIGHT, MAX_WEIGHT = 0.25, 3.0
 ROUNDS = 12  # rounds written into one audio list; the list is rebuilt at every encoder restart
@@ -15,20 +17,30 @@ def weight(up, down):
     return max(MIN_WEIGHT, min(MAX_WEIGHT, 1.0 + 0.5 * (up - down)))
 
 
-def weights(songs, tally):
-    return {s["id"]: weight(*tally.counts(s["id"])) for s in songs}
+def featured_floor(song, now=None):
+    """A featured song ({"feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}} in playlist.json) is due at
+    least that many times a round until the time given, so new songs get heard whatever the first votes say."""
+    f = song.get("feature")
+    if not f:
+        return 0.0
+    now = now or datetime.now(timezone.utc)
+    return float(f["weight"]) if now < datetime.fromisoformat(f["until"]) else 0.0
 
 
-def signature(songs, tally):
+def weights(songs, tally, now=None):
+    return {s["id"]: max(weight(*tally.counts(s["id"])), featured_floor(s, now)) for s in songs}
+
+
+def signature(songs, tally, now=None):
     """What the schedule depends on; equal signatures give the same schedule."""
-    w = weights(songs, tally)
+    w = weights(songs, tally, now)
     return tuple(w[s["id"]] for s in songs)
 
 
-def sequence(songs, tally, rounds=ROUNDS, after_id=None):
+def sequence(songs, tally, rounds=ROUNDS, after_id=None, now=None):
     """The play order for `rounds` rounds. In each round a song due n times is spread evenly through the
     round (copy k of song i at (k + i/N) / n), so a liked song comes round at regular gaps, not in a clump."""
-    w = weights(songs, tally)
+    w = weights(songs, tally, now)
     acc = {s["id"]: 0.0 for s in songs}
     seq, N = [], len(songs)
     for _ in range(rounds):

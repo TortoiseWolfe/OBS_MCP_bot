@@ -1,5 +1,6 @@
 """The words on screen. ffmpeg's drawtext re-reads these small files every frame (reload=1)."""
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .tally import write_json  # noqa: F401  (re-exported for callers that write state beside the text)
@@ -16,8 +17,18 @@ def write_text(path, text):
     tmp.replace(path)
 
 
-def render(out_dir, song, nxt, tally, songs):
-    """Write title.txt, tally.txt, top.txt and next.txt for the song now playing."""
+def active_announcement(announcements, now=None):
+    """The words of the announcement whose window ({"from", "until", "text"}, ISO times) holds `now`, or None.
+    The text must fit the note line (about 30 characters at the font size in run.py)."""
+    now = now or datetime.now(timezone.utc)
+    for a in announcements or []:
+        if datetime.fromisoformat(a["from"]) <= now < datetime.fromisoformat(a["until"]):
+            return a["text"]
+    return None
+
+
+def render(out_dir, song, nxt, tally, songs, announce=None):
+    """Write title.txt, tally.txt, top.txt and next.txt for the song now playing; `announce` takes the note line."""
     out_dir = Path(out_dir)
     up, down = tally.counts(song["id"])
     write_text(out_dir / "title.txt", "\n".join(textwrap.wrap(song["title"], 22)[:3]))
@@ -27,7 +38,7 @@ def render(out_dir, song, nxt, tally, songs):
         write_text(out_dir / "note.txt", tail)
     else:
         write_text(out_dir / "tally.txt", f"UP {up}     DOWN {down}")
-        write_text(out_dir / "note.txt", " ")
+        write_text(out_dir / "note.txt", announce or " ")
     top = tally.top_net(songs, 3)
     lines = [f"{i}. {short(r[0]['title'], 30)}  ({r[1] - r[2]:+d})" for i, r in enumerate(top, 1)]
     write_text(out_dir / "top.txt", "\n".join(lines) if lines else "Votes will show up here")

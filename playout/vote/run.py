@@ -18,7 +18,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, ingest, overlay, playlist, weights
+from bwvote import background, ingest, overlay, playlist, viewers, weights
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -66,6 +66,9 @@ class Stream:
         self.opened = False
         self.weights_sig, self.last_play = None, None
 
+    def announce(self):
+        return overlay.active_announcement(self.cfg.get("announcements"))
+
     # --- what is playing -------------------------------------------------
     def position(self, lag=0.0):
         with self.lock:
@@ -112,7 +115,7 @@ class Stream:
         (STATE / "list.txt").write_text(playlist.concat_list(seq, repeats=1, lead=lead))
         odd = ", ".join(f"{k.split('/')[-1][3:-4]} x{v:g}" for k, v in weights.weights(chosen, self.tally).items() if v != 1.0)
         log("weights: " + (odd or "all even"))
-        overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs)
+        overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
         cmd = build_cmd(STATE / "bg.png", STATE / "list.txt", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
             self.pos, self.pos_at = 0.0, time.time()
@@ -168,6 +171,7 @@ class Stream:
 
     def run(self):
         threading.Thread(target=chat_tally.read_chat, args=(self.cfg["channel"], self.on_chat, self.stop), daemon=True).start()
+        threading.Thread(target=viewers.run, args=(self.cfg["channel"], STATE / "viewers.jsonl", self.stop), daemon=True).start()
         self.launch()
         last_save = last_scan = time.time()
         while not self.stop.is_set():
@@ -181,7 +185,7 @@ class Stream:
                 self.launch()
                 continue
             p = self.position()
-            overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs)
+            overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs, self.announce())
             now = time.time()
             i, into = self.timeline.at(p)
             if i != self.last_play:

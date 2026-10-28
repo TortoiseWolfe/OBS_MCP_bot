@@ -69,7 +69,7 @@ def test_no_clips_falls_back_to_songs_without_jams(tmp_path):
 
 def test_playlist_json_ids_match_audio_prefix():
     cfg = playlist.load()
-    assert len(cfg["songs"]) == 31 and len({s["id"] for s in cfg["songs"]}) == 31
+    assert len(cfg["songs"]) == 37 and len({s["id"] for s in cfg["songs"]}) == 37
 
 
 def test_opener_plays_once_then_the_loop():
@@ -122,3 +122,70 @@ def test_votes_are_logged_with_the_clock_and_song(tmp_path):
     append_jsonl(tmp_path / "v.jsonl", {"epoch": 1.0, "vote": "up"})
     append_jsonl(tmp_path / "v.jsonl", {"epoch": 2.0, "vote": "down"})
     assert (tmp_path / "v.jsonl").read_text().count("\n") == 2
+
+
+def test_featured_songs_keep_a_floor_until_the_date_then_follow_the_votes():
+    from datetime import datetime, timezone
+    from bwvote import weights
+    feat = {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}
+    songs = [dict(SONGS[0], feature=feat), SONGS[1], SONGS[2]]
+    t = Tally()
+    for who in ("a", "b", "c", "d"):  # four voters vote the featured song and song 2 down
+        t.vote(songs[0]["id"], who, "down"); t.vote(songs[1]["id"], who, "down")
+    before, after = datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 30, tzinfo=timezone.utc)
+    w_before, w_after = weights.weights(songs, t, before), weights.weights(songs, t, after)
+    assert w_before[songs[0]["id"]] == 1.0 and w_before[songs[1]["id"]] == 0.25  # the floor holds only the featured one
+    assert w_after[songs[0]["id"]] == 0.25
+    seq = [s["id"] for s in weights.sequence(songs, t, rounds=4, now=before)]
+    assert seq.count(songs[0]["id"]) == 4 and all(a != b for a, b in zip(seq, seq[1:]))
+    assert weights.signature(songs, t, before) != weights.signature(songs, t, after)  # expiry restarts the order
+
+
+def test_playlist_features_the_six_story_takes_until_thursday_noon():
+    cfg = playlist.load()
+    story = [s for s in cfg["songs"] if s["group"] == "story"]
+    assert [s["file"] for s in story] == [f"bw-story-{n}.mp3" for n in ("1", "1b", "7", "7b", "13", "13b")]
+    assert all(s["feature"] == {"weight": 1, "until": "2026-10-29T12:00:00-04:00"} for s in story)
+
+
+def test_viewer_log_rows_share_the_play_clock_format(tmp_path):
+    import json, threading
+    from bwvote import viewers
+    stop, calls = threading.Event(), []
+
+    def get(channel):
+        calls.append(channel); stop.set(); return 7
+
+    viewers.run("turtlewolfe", tmp_path / "viewers.jsonl", stop, every=0, get=get)
+    r = json.loads((tmp_path / "viewers.jsonl").read_text())
+    assert calls == ["turtlewolfe"] and r["channel"] == "turtlewolfe" and r["viewers"] == 7
+    assert set(r) == {"epoch", "time", "channel", "viewers"}  # same epoch and time keys as plays.jsonl
+
+
+def test_viewer_fetch_gives_a_number_or_none(monkeypatch):
+    import io
+    from bwvote import viewers
+    for body, want in ((b"12", 12), (b"0", 0), (b"turtlewolfe is offline", None)):
+        monkeypatch.setattr(viewers.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(body))
+        assert viewers.fetch("turtlewolfe") == want
+
+
+def test_announcement_shows_only_inside_its_window_and_playlist_points_to_scripthammer():
+    from datetime import datetime, timezone
+    from bwvote import overlay
+    cfg = playlist.load()
+    a = cfg["announcements"]
+    inside = datetime(2026, 10, 29, 21, 10, tzinfo=timezone.utc)  # 5:10 PM Eastern (daylight time)
+    assert "twitch.tv/scripthammer" in overlay.active_announcement(a, inside)
+    assert overlay.active_announcement(a, datetime(2026, 10, 29, 20, 0, tzinfo=timezone.utc)) is None  # 4:00 PM
+    assert overlay.active_announcement(a, datetime(2026, 10, 29, 21, 30, tzinfo=timezone.utc)) is None  # 5:30 PM: stopped by then
+    assert overlay.active_announcement(None, inside) is None
+
+
+def test_render_puts_the_announcement_on_the_note_line(tmp_path):
+    from bwvote import overlay
+    song = {"id": "x", "title": "T"}
+    overlay.render(tmp_path, song, song, Tally(), [song], "6 PM show: twitch.tv/scripthammer")
+    assert (tmp_path / "note.txt").read_text() == "6 PM show: twitch.tv/scripthammer"
+    overlay.render(tmp_path, song, song, Tally(), [song])
+    assert (tmp_path / "note.txt").read_text() == " "
