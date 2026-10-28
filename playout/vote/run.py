@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Band Wagon fan-vote stream: loops the full songs (the practice jams too) to Twitch; chat votes !up / !down on the song playing.
+"""Band Wagon fan-vote stream: full takes, one after another, to Twitch; chat votes !up / !down on the take playing.
 
-One ffmpeg runs the whole list start to finish. Votes are saved and shown on screen but change the play order only at the
-next start of this program (the scheduled stop and restart); the only relaunch is ffmpeg ending on its own.
+One ffmpeg encodes the whole show. Its sound arrives on a continuous pipe (bwvote/pipe.py); as each song starts the player
+picks the next take from the catalog (bwvote/catalog.py, bwvote/picker.py): no take twice until all have played, liked ones
+earlier, new ones soon, new takes picked up as they land. No restart is needed for any of it; the only relaunch is ffmpeg
+ending on its own.
 
 usage:
   run.py live [--bandwidthtest] [--seconds N]   push to the channel (key read from the OBS profile, never shown)
@@ -12,6 +14,7 @@ usage:
 Anything you type in chat other than !up / !down is ignored and never stored or shown.
 """
 import argparse
+import io
 import json
 import os
 import signal
@@ -21,17 +24,17 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, covers, ingest, overlay, playlist, viewers, weights
+from bwvote import background, catalog, covers, ingest, overlay, picker, pipe, playlist, viewers
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))  # playout/: the shared chat reader and key redaction
 import chat_tally  # noqa: E402
-STATE = HERE / "state"
+STATE = Path(os.environ.get("BWVOTE_STATE") or HERE / "state")  # another folder lets a test encode run beside the live stream
 VOTE_LAG = 6.0       # seconds: what a viewer sees is about this far behind the encoder
 
 
-def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
+def build_cmd(bg, out_dir, font, target, fmt, seconds=None):
     def dt(name, x, y, size, color, extra=""):
         return (f"drawtext=fontfile={font}:textfile={out_dir}/{name}.txt:reload=1:expansion=none:"
                 f"x={x}:y={y}:fontsize={size}:fontcolor={color}{extra}")
@@ -43,7 +46,7 @@ def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
                    "format=yuv420p"])
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-progress", "pipe:1", "-nostats",
            "-re", "-f", "image2", "-loop", "1", "-framerate", "5", "-i", str(bg),  # -f image2: re-read every frame, so a new bg.png shows at once
-           "-re", "-f", "concat", "-safe", "0", "-i", str(list_file),
+           "-re", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "pipe:0",  # the audio pipe (bwvote/pipe.py)
            "-vf", vf, "-r", "5",
            "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-b:v", "1500k", "-maxrate", "1500k", "-bufsize", "3000k",
            "-g", "10", "-keyint_min", "10", "-sc_threshold", "0",  # still picture: 5 fps, a keyframe every 2 s (Twitch needs one)
@@ -60,7 +63,8 @@ class Stream:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.all_songs = cfg["songs"]
-        self.songs, self.timeline = [], None
+        self.timeline, self.feeder = None, None
+        self.picker = picker.Picker(STATE / "picker.json")
         self.pos, self.pos_at = 0.0, time.time()
         self.proc, self.started_at = None, 0.0
         self.opened = False
@@ -106,35 +110,46 @@ class Stream:
                                              "song": song["id"], "title": song["title"], "event": kind})
 
     # --- ffmpeg ----------------------------------------------------------
+    def choose(self):
+        """The next take, drawn from the catalog as it stands now (new takes included)."""
+        songs = catalog.load(self.cfg)
+        self.all_songs = songs
+        return self.picker.pick(songs, self.tally)
+
     def launch(self):
         STATE.mkdir(exist_ok=True)
-        chosen = playlist.full_songs(self.all_songs)
-        playlist.with_durations(chosen)
-        lead = None
-        if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the loop)
-            op = playlist.opener_source(self.cfg)
-            if op and op["path"].exists():
-                lead = playlist.with_durations([op])
+        self.all_songs = catalog.load(self.cfg)
+        first = None
+        if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the draw)
+            first = playlist.opener_source(self.cfg)
+            if first and first["path"].exists():
+                self.picker.note(first)
+            else:
+                first = None
         self.opened = True
-        # the play order follows the votes as they stand now; it is fixed until the encoder next restarts
-        after = self.timeline.song_at(self.position())["id"] if self.timeline and not lead else None
-        seq = weights.sequence(chosen, self.tally, after_id=after)
-        self.songs, self.timeline = chosen, playlist.Timeline(seq, lead)
+        self.timeline = pipe.LiveTimeline()
         self.last_play = None
-        (STATE / "list.txt").write_text(playlist.concat_list(seq, repeats=1, lead=lead))
-        odd = ", ".join(f"{k.split('/')[-1][3:-4]} x{v:g}" for k, v in weights.weights(chosen, self.tally).items() if v != 1.0)
-        log("weights: " + (odd or "all even"))
-        overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
-        self.show_cover(self.timeline.song_at(0))
-        cmd = build_cmd(STATE / "bg.png", STATE / "list.txt", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
+        cmd = build_cmd(STATE / "bg.png", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
             self.pos, self.pos_at = 0.0, time.time()
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.proc.stdout = io.TextIOWrapper(self.proc.stdout)  # stdin stays binary: it carries the sound
+        self.proc.stderr = io.TextIOWrapper(self.proc.stderr, errors="replace")
         self.started_at = time.time()
-        log(f"ffmpeg started: {len(chosen)} full songs, loop {self.timeline.length:.0f}s")
+        if self.feeder:
+            self.feeder.stop.set()
+        self.feeder = pipe.Feeder(self.proc.stdin, self.timeline, self.choose, first, log=log)
+        self.feeder.start()
+        if not self.feeder.started.wait(30):
+            log("the first take did not start within 30 s")
+        else:
+            overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
+            self.show_cover(self.timeline.song_at(0))
+        log(f"ffmpeg started: {len(self.all_songs)} takes in the catalog, next take chosen as each song starts")
         threading.Thread(target=self.read_progress, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self.read_errors, args=(self.proc,), daemon=True).start()
 
+    # --- the encoder's own numbers ---------------------------------------
     def read_progress(self, proc):
         t0 = last = time.time()
         mark_out = mark_el = 0.0
@@ -179,8 +194,9 @@ class Stream:
             write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs))
 
     def run(self):
-        threading.Thread(target=chat_tally.read_chat, args=(self.cfg["channel"], self.on_chat, self.stop), daemon=True).start()
-        threading.Thread(target=viewers.run, args=(self.cfg["channel"], STATE / "viewers.jsonl", self.stop), daemon=True).start()
+        if self.cfg.get("channel"):  # a test encode into a file sets no channel and reads no chat
+            threading.Thread(target=chat_tally.read_chat, args=(self.cfg["channel"], self.on_chat, self.stop), daemon=True).start()
+            threading.Thread(target=viewers.run, args=(self.cfg["channel"], STATE / "viewers.jsonl", self.stop), daemon=True).start()
         self.launch()
         last_save = time.time()
         while not self.stop.is_set():
@@ -192,6 +208,8 @@ class Stream:
                 log(f"ffmpeg ended rc={rc}; restarting in 5 s")
                 time.sleep(5)
                 self.launch()
+                continue
+            if not self.timeline:
                 continue
             p = self.position()
             overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs, self.announce())
@@ -226,7 +244,7 @@ def main():
         cfg["channel"] = a.channel
     STATE.mkdir(exist_ok=True)
     if a.mode == "report":
-        print(Tally(load_state(STATE / "tally.json")).report_line(cfg["songs"]))
+        print(Tally(load_state(STATE / "tally.json")).report_line(catalog.load(cfg)))
         return
     pidfile = STATE / "run.pid"
     if a.mode == "stop":

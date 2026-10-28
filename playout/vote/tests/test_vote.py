@@ -46,20 +46,12 @@ def test_rankings_and_export():
     assert "top 5 up" in t.report_line(SONGS)
 
 
-def test_timeline_wraps():
-    tl = playlist.Timeline(SONGS)
-    assert tl.length == 120 and tl.song_at(0)["title"] == "Song 1"
-    assert tl.song_at(40)["title"] == "Song 2" and tl.song_at(125)["title"] == "Song 1"
-    assert tl.next_song(119)["title"] == "Song 1"
-
-
-def test_the_stream_plays_every_full_song_jams_included_and_never_the_shorts_cuts(tmp_path):
+def test_the_catalog_has_every_full_song_jams_included_and_never_the_shorts_cuts():
+    from bwvote import catalog
     cfg = playlist.load()
-    clips = tmp_path / "clips"; clips.mkdir()
-    (clips / "bw-n01-clip.mp3").write_bytes(b"x" * 10)  # a Shorts cut exists; it must not be picked
-    got = playlist.full_songs(cfg["songs"])
-    assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]
-    assert sum(s["group"] == "jam" for s in got) == 6 and all(s["path"].name == s["file"] for s in got)
+    got = catalog.load(cfg)
+    assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]  # all 37 files exist on this machine
+    assert sum(s["group"] == "jam" for s in got) == 6
     assert not any("clip" in str(s["path"]) for s in got)
 
 
@@ -69,6 +61,7 @@ def test_nothing_restarts_the_encoder_but_it_ending_on_its_own():
         assert gone not in src
     assert src.count("self.launch()") == 2  # the first start, and the relaunch after ffmpeg ends by itself
     assert src.count("self.halt_ffmpeg()") == 1  # only at shutdown
+    assert "concat" not in src and "list.txt" not in src  # no fixed song list: the player picks each take as it starts
 
 
 def test_playlist_json_ids_match_audio_prefix():
@@ -76,13 +69,15 @@ def test_playlist_json_ids_match_audio_prefix():
     assert len(cfg["songs"]) == 37 and len({s["id"] for s in cfg["songs"]}) == 37
 
 
-def test_opener_plays_once_then_the_loop():
-    op = {"title": "Opener", "seconds": 400, "opener": True}
-    tl = playlist.Timeline(SONGS, lead=[op])
-    assert tl.song_at(0)["title"] == "Opener" and tl.song_at(399)["title"] == "Opener"
-    assert tl.song_at(400)["title"] == "Song 1" and tl.song_at(400 + 120)["title"] == "Song 1"
-    assert tl.next_song(10)["title"] == "Song 1" and tl.next_song(400 + 119)["title"] == "Song 1"
-    assert tl.length == 120
+def test_live_timeline_follows_songs_as_they_start():
+    from bwvote import pipe
+    tl = pipe.LiveTimeline()
+    assert not tl
+    tl.begin({"title": "Opener"}, 0.0); tl.begin({"title": "Song 1"}, 400.0)
+    tl.upcoming = {"title": "Song 2"}
+    assert tl.song_at(0)["title"] == "Opener" and tl.song_at(399.9)["title"] == "Opener"
+    assert tl.song_at(400)["title"] == "Song 1" and tl.at(450) == (1, 50)
+    assert tl.next_song(10)["title"] == "Song 1" and tl.next_song(450)["title"] == "Song 2"
 
 
 def _tally_with(votes):
@@ -100,25 +95,6 @@ def test_weights_follow_the_votes():
     assert weights.weight(0, 0) == 1.0 and weights.weight(1, 0) == 1.0  # one stray vote moves nothing
     assert weights.weight(3, 0) == 2.5 and weights.weight(9, 0) == 3.0
     assert weights.weight(0, 2) == 0.25 and weights.weight(0, 9) == 0.25
-
-
-def test_sequence_plays_liked_more_and_voted_down_less_and_never_back_to_back():
-    from bwvote import weights
-    t = _tally_with([(SONGS[0]["id"], 4, 0), (SONGS[2]["id"], 0, 3)])
-    seq = [s["id"] for s in weights.sequence(SONGS, t, rounds=8)]
-    assert seq.count(SONGS[1]["id"]) == 8
-    assert seq.count(SONGS[0]["id"]) == 24 and seq.count(SONGS[2]["id"]) == 2
-    many = [dict(SONGS[0], id=f"x/{i}", file=f"{i}.mp3") for i in range(8)]  # a short list can't avoid repeats; a real one can
-    t2 = _tally_with([("x/0", 6, 0), ("x/7", 0, 3)])
-    seq2 = [s["id"] for s in weights.sequence(many, t2, rounds=12)]
-    assert seq2.count("x/0") > 2 * seq2.count("x/1") > 2 * seq2.count("x/7")
-    assert all(a != b for a, b in zip(seq2, seq2[1:]))
-
-
-def test_sequence_continues_after_the_song_that_was_playing():
-    from bwvote import weights
-    seq = weights.sequence(SONGS, Tally(), rounds=2, after_id=SONGS[1]["id"])
-    assert seq[0]["id"] == SONGS[2]["id"]
 
 
 def test_votes_are_logged_with_the_clock_and_song(tmp_path):
@@ -140,9 +116,6 @@ def test_featured_songs_keep_a_floor_until_the_date_then_follow_the_votes():
     w_before, w_after = weights.weights(songs, t, before), weights.weights(songs, t, after)
     assert w_before[songs[0]["id"]] == 1.0 and w_before[songs[1]["id"]] == 0.25  # the floor holds only the featured one
     assert w_after[songs[0]["id"]] == 0.25
-    seq = [s["id"] for s in weights.sequence(songs, t, rounds=4, now=before)]
-    assert seq.count(songs[0]["id"]) == 4 and all(a != b for a, b in zip(seq, seq[1:]))
-    assert weights.signature(songs, t, before) != weights.signature(songs, t, after)  # expiry restarts the order
 
 
 def test_playlist_features_the_six_story_takes_until_thursday_noon():
@@ -213,7 +186,7 @@ def test_each_song_gets_its_own_cover_and_falls_back_to_the_show_cover(tmp_path)
 def test_the_picture_is_re_read_every_frame_and_replaced_whole(tmp_path):
     import run
     from bwvote import background
-    cmd = run.build_cmd(tmp_path / "bg.png", "l.txt", tmp_path, "f.ttf", "x", "flv")
+    cmd = run.build_cmd(tmp_path / "bg.png", tmp_path, "f.ttf", "x", "flv")
     i = cmd.index(str(tmp_path / "bg.png"))
     assert cmd[i - 8:i] == ["-re", "-f", "image2", "-loop", "1", "-framerate", "5", "-i"]  # -f image2 is what makes ffmpeg re-read the file
     font = Path("~/repos/hub/internship/showcase/art/band-wagon/fonts/LilitaOne-Regular.ttf").expanduser()
@@ -223,3 +196,109 @@ def test_the_picture_is_re_read_every_frame_and_replaced_whole(tmp_path):
         background.build(tmp_path / "c.png", font, tmp_path / "bg.png")
         assert Image.open(tmp_path / "bg.png").size == (1280, 720)
         assert [p.name for p in tmp_path.glob("bg*")] == ["bg.png"]  # no half-written file left beside it
+
+
+# --- the take catalog, the picker, the audio pipe ---------------------------------------------------------------
+
+def _cfg(tmp_path, takes=None, n=3):
+    for i in range(1, n + 1):
+        (tmp_path / f"bw-n0{i}.mp3").write_bytes(b"x")
+    cfg = {"audio_dir": str(tmp_path), "audio_prefix": "band-wagon/", "catalog": str(tmp_path / "takes-catalog.json"),
+           "songs": [{"file": f"bw-n0{i}.mp3", "title": f"Song {i}", "id": f"band-wagon/bw-n0{i}.mp3",
+                      "path": tmp_path / f"bw-n0{i}.mp3"} for i in range(1, n + 1)]}
+    if takes is not None:
+        (tmp_path / "takes-catalog.json").write_text(__import__("json").dumps({"takes": takes}))
+    return cfg
+
+
+def test_a_take_joins_the_catalog_once_it_has_settled_and_not_while_held_or_unreadable(tmp_path):
+    import os
+    from bwvote import catalog
+    cfg = _cfg(tmp_path, [{"file": "bw-lore-1.mp3", "title": "Nell at Millrace Landing"}, {"file": "bw-lore-2.mp3"},
+                          {"file": "bw-lore-3.mp3", "hold": True}, {"file": "bw-lore-4.mp3"}, {"file": "bw-n01.mp3"}])
+    for n in (1, 2, 3, 4):
+        (tmp_path / f"bw-lore-{n}.mp3").write_bytes(b"x")
+    old = 1_000_000.0
+    os.utime(tmp_path / "bw-lore-1.mp3", (old, old)); os.utime(tmp_path / "bw-lore-3.mp3", (old, old)); os.utime(tmp_path / "bw-lore-4.mp3", (old, old))
+    probe = lambda p: 2.0 if p.name == "bw-lore-4.mp3" else 150.0  # lore-4 is a 2 s stub
+    got = catalog.load(cfg, now=old + 60, probe=probe)
+    titles = [s["title"] for s in got]
+    assert titles == ["Song 1", "Song 2", "Song 3", "Nell at Millrace Landing"]  # lore-2 just written, 3 held, 4 too short, n01 not doubled
+    assert got[-1]["id"] == "band-wagon/bw-lore-1.mp3" and got[-1]["file"] == "bw-lore-1.mp3"
+    assert catalog.load(cfg, now=time_now() + 60, probe=probe)[-1]["title"] == "Take lore-2"  # untitled: named from the file
+    (tmp_path / "x").mkdir()
+    assert len(catalog.load(_cfg(tmp_path / "x"))) == 3  # no catalog file: just playlist.json
+
+
+def time_now():
+    import time
+    return time.time()
+
+
+def test_no_take_twice_until_all_have_played_then_a_new_cycle(tmp_path):
+    import random
+    from bwvote import picker
+    songs = [{"id": f"t{i}", "title": str(i)} for i in range(6)]
+    p = picker.Picker(tmp_path / "p.json", random.Random(1))
+    first = [p.pick(songs, Tally())["id"] for _ in range(6)]
+    assert sorted(first) == sorted(s["id"] for s in songs)  # each exactly once
+    second = [p.pick(songs, Tally())["id"] for _ in range(6)]
+    assert sorted(second) == sorted(first) and second[0] != first[-1]  # a new cycle; no back-to-back at the join
+    again = picker.Picker(tmp_path / "p.json", random.Random(2))     # a restart carries on the cycle
+    assert again.cycle == p.cycle and again.last == p.last
+
+
+def test_a_new_take_is_heard_within_a_few_songs_and_liked_ones_come_earlier(tmp_path):
+    import random
+    from bwvote import picker
+    songs = [{"id": f"t{i}", "title": str(i)} for i in range(30)]
+    soonest = []
+    for seed in range(40):
+        p = picker.Picker(tmp_path / f"a{seed}.json", random.Random(seed))
+        for _ in range(30 + 10):  # one whole cycle (everything heard once), then 10 songs into the next
+            p.pick(songs, Tally())
+        songs2 = songs + [{"id": "new", "title": "new"}]
+        soonest.append([p.pick(songs2, Tally())["id"] for _ in range(20)].index("new"))
+    assert sum(soonest) / len(soonest) < 6 and max(soonest) < 20  # it lands mid-cycle, and is on air in the next few songs (an even draw would average 10)
+    liked = _tally_with([("t0", 6, 0), ("t1", 0, 4)])
+    pos = {"t0": [], "t1": []}
+    for seed in range(60):
+        p = picker.Picker(tmp_path / f"b{seed}.json", random.Random(seed))
+        order = [p.pick(songs, liked)["id"] for _ in range(30)]
+        for k in pos:
+            pos[k].append(order.index(k))
+    assert sum(pos["t0"]) < sum(pos["t1"])  # voted up earlier than voted down, in the same cycle
+
+
+def test_voted_down_takes_rest_a_cycle_now_and_then_but_are_never_dropped(tmp_path):
+    import random
+    from bwvote import picker
+    songs = [{"id": f"t{i}", "title": str(i)} for i in range(4)]
+    down = _tally_with([("t0", 0, 4)])  # weight 0.25
+    p = picker.Picker(tmp_path / "p.json", random.Random(3))
+    plays = [p.pick(songs, down)["id"] for _ in range(40)]
+    assert 0 < plays.count("t0") < plays.count("t1")  # rarer, not gone
+    assert plays.count("t1") >= 9
+
+
+def test_the_pipe_carries_song_after_song_gaplessly_and_skips_one_that_will_not_decode(tmp_path):
+    import io
+    from bwvote import pipe
+    tl, sink, picks = pipe.LiveTimeline(), io.BytesIO(), []
+    songs = [{"id": f"s{i}", "title": f"S{i}", "path": tmp_path / f"s{i}.pcm"} for i in range(4)]
+    for s in songs[:3]:
+        s["path"].write_bytes(b"\x01\x00" * 48000 * 2 * 2)  # 2 s of raw sound
+    bad = songs[3]
+    order = iter([songs[1], bad, songs[2]])
+    def choose():
+        try:
+            return next(order)
+        except StopIteration:
+            f.stop.set(); return songs[0]
+    decoder = lambda path: ["cat", str(path)]
+    f = pipe.Feeder(sink, tl, choose, first=songs[0], decoder=decoder, log=picks.append)
+    f.run()
+    assert [s["id"] for s in tl.songs[:3]] == ["s0", "s1", "s2"]  # the one that would not decode left no trace in the timeline
+    assert any("skipped s3" in m for m in picks)
+    assert tl.starts[:3] == [0.0, 2.0, 4.0]  # exact: every byte counted, no gap and no overlap
+    assert f.started.is_set() and tl.upcoming is not None

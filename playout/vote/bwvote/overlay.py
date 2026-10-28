@@ -42,4 +42,4 @@ def render(out_dir, song, nxt, tally, songs, announce=None):
     top = tally.top_net(songs, 3)
     lines = [f"{i}. {short(r[0]['title'], 30)}  ({r[1] - r[2]:+d})" for i, r in enumerate(top, 1)]
     write_text(out_dir / "top.txt", "\n".join(lines) if lines else "Votes will show up here")
-    write_text(out_dir / "next.txt", "Up next: " + short(nxt["title"], 38))
+    write_text(out_dir / "next.txt", "Up next: " + short(nxt["title"], 38) if nxt else " ")
