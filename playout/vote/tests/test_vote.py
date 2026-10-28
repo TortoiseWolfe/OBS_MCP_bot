@@ -1,3 +1,5 @@
+import threading
+import time
 import sys
 from pathlib import Path
 
@@ -46,9 +48,10 @@ def test_rankings_and_export():
     assert "top 5 up" in t.report_line(SONGS)
 
 
-def test_the_catalog_has_every_full_song_jams_included_and_never_the_shorts_cuts():
+def test_the_catalog_has_every_full_song_jams_included_and_never_the_shorts_cuts(tmp_path):
     from bwvote import catalog
     cfg = playlist.load()
+    cfg["catalog"] = str(tmp_path / "no-factory-takes-yet.json")  # the real factory catalog now fills up; this checks the fixed playlist alone
     got = catalog.load(cfg)
     assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]  # all 37 files exist on this machine
     assert sum(s["group"] == "jam" for s in got) == 6
@@ -196,6 +199,16 @@ def test_the_picture_is_re_read_every_frame_and_replaced_whole(tmp_path):
         background.build(tmp_path / "c.png", font, tmp_path / "bg.png")
         assert Image.open(tmp_path / "bg.png").size == (1280, 720)
         assert [p.name for p in tmp_path.glob("bg*")] == ["bg.png"]  # no half-written file left beside it
+
+
+def test_the_encoder_adds_no_picture_delay_and_the_title_follows_the_picture_clock(tmp_path):
+    """Measured 28 Oct: with the default x264 look-ahead the title came 8 s after the sound; zerolatency put it within 0.25 s."""
+    import run
+    cmd = run.build_cmd(tmp_path / "bg.png", tmp_path, "f.ttf", "x", "flv")
+    assert cmd[cmd.index("-tune") + 1] == "stillimage,zerolatency"
+    s = run.Stream.__new__(run.Stream)
+    s.lock, s.frames, s.frames_at = threading.Lock(), 60, time.time()
+    assert 12.0 <= s.picture_position() <= 12.21  # 60 frames at 5 a second, plus at most one frame of interpolation
 
 
 # --- the take catalog, the picker, the audio pipe ---------------------------------------------------------------

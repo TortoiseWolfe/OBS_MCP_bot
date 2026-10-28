@@ -31,6 +31,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))  # playout/: the shared chat reader and key redaction
 import chat_tally  # noqa: E402
 STATE = Path(os.environ.get("BWVOTE_STATE") or HERE / "state")  # another folder lets a test encode run beside the live stream
+FPS = 5              # picture frames per second (build_cmd); the picture clock counts these
 VOTE_LAG = 6.0       # seconds: what a viewer sees is about this far behind the encoder
 
 
@@ -45,10 +46,10 @@ def build_cmd(bg, out_dir, font, target, fmt, seconds=None):
                    dt("next", 690, 626, 22, "0xBEE6FF"),
                    "format=yuv420p"])
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-progress", "pipe:1", "-nostats",
-           "-re", "-f", "image2", "-loop", "1", "-framerate", "5", "-i", str(bg),  # -f image2: re-read every frame, so a new bg.png shows at once
+           "-re", "-f", "image2", "-loop", "1", "-framerate", str(FPS), "-i", str(bg),  # -f image2: re-read every frame, so a new bg.png shows at once
            "-re", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "pipe:0",  # the audio pipe (bwvote/pipe.py)
-           "-vf", vf, "-r", "5",
-           "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-b:v", "1500k", "-maxrate", "1500k", "-bufsize", "3000k",
+           "-vf", vf, "-r", str(FPS),
+           "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage,zerolatency", "-b:v", "1500k", "-maxrate", "1500k", "-bufsize", "3000k",
            "-g", "10", "-keyint_min", "10", "-sc_threshold", "0",  # still picture: 5 fps, a keyframe every 2 s (Twitch needs one)
            "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
     if seconds:
@@ -66,10 +67,12 @@ class Stream:
         self.timeline, self.feeder = None, None
         self.picker = picker.Picker(STATE / "picker.json")
         self.pos, self.pos_at = 0.0, time.time()
+        self.frames, self.frames_at = 0, time.time()
         self.proc, self.started_at = None, 0.0
         self.opened = False
         self.last_play = None
         self.cover_now = None
+        self.cover_idx = None
 
     def show_cover(self, song):
         """Put the song's own cover (beside Now Playing) into bg.png, which ffmpeg re-reads every frame."""
@@ -88,6 +91,12 @@ class Stream:
     def position(self, lag=0.0):
         with self.lock:
             return max(0.0, self.pos + min(time.time() - self.pos_at, 2.0) - lag)
+
+    def picture_position(self):
+        """Where the encoder has got to in the picture (frames written / frame rate): the title and cover follow this, so they change on the
+        frame that goes with the first sound of a take. The sound's own clock (position) is the lag-corrected one that votes use."""
+        with self.lock:
+            return self.frames / FPS + min(time.time() - self.frames_at, 1.0 / FPS)
 
     def on_chat(self, user, text):
         v = parse_command(text)
@@ -129,9 +138,11 @@ class Stream:
         self.opened = True
         self.timeline = pipe.LiveTimeline()
         self.last_play = None
+        self.cover_idx = None
         cmd = build_cmd(STATE / "bg.png", STATE, self.cfg["font"], self.target, self.fmt, self.seconds)
         with self.lock:
             self.pos, self.pos_at = 0.0, time.time()
+            self.frames, self.frames_at = 0, time.time()
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.proc.stdout = io.TextIOWrapper(self.proc.stdout)  # stdin stays binary: it carries the sound
         self.proc.stderr = io.TextIOWrapper(self.proc.stderr, errors="replace")
@@ -162,6 +173,13 @@ class Stream:
                 got = window.speed(pos, pos_at) if pos_at else None
                 last = time.time()
                 log(f"ffmpeg {line.strip()} since start; " + (f"{got:.3f}x over the last minute" if got is not None else "no last-minute figure yet"))
+            if line.startswith("frame="):
+                try:
+                    n = int(line.split("=")[1])
+                except ValueError:
+                    continue
+                with self.lock:
+                    self.frames, self.frames_at = n, time.time()
             if line.startswith("out_time_us="):
                 try:
                     us = int(line.split("=")[1])
@@ -199,7 +217,7 @@ class Stream:
         self.launch()
         last_save = time.time()
         while not self.stop.is_set():
-            time.sleep(1)
+            time.sleep(0.25)
             rc = self.proc.poll()
             if rc is not None:
                 if self.seconds and rc == 0:
@@ -211,13 +229,17 @@ class Stream:
             if not self.timeline:
                 continue
             p = self.position()
-            overlay.render(STATE, self.timeline.song_at(p), self.timeline.next_song(p), self.tally, self.all_songs, self.announce())
+            pv = self.picture_position()
+            overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce())
             now = time.time()
             i, into = self.timeline.at(p)
             if i != self.last_play:
                 self.last_play = i
-                self.show_cover(self.timeline.songs[i])
                 self.log_play(now - into, self.timeline.songs[i])
+            iv = self.timeline.at(pv)[0]
+            if iv != self.cover_idx:
+                self.cover_idx = iv
+                self.show_cover(self.timeline.songs[iv])
             if now - last_save > 10:
                 self.save(); last_save = now
         self.halt_ffmpeg(); self.save()
