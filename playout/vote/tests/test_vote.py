@@ -53,18 +53,22 @@ def test_timeline_wraps():
     assert tl.next_song(119)["title"] == "Song 1"
 
 
-def test_clip_matching_does_not_cross_a_b_takes(tmp_path):
-    for n in ("bw-jam-1-clip.mp3", "bw-jam-1b-clip.mp3"):
-        (tmp_path / n).write_bytes(b"x")
-    assert playlist.find_clip(tmp_path, "bw-jam-1.mp3").name == "bw-jam-1-clip.mp3"
-    assert playlist.find_clip(tmp_path, "bw-jam-1b.mp3").name == "bw-jam-1b-clip.mp3"
-    assert playlist.find_clip(tmp_path, "bw-jam-2.mp3") is None
+def test_the_stream_plays_every_full_song_jams_included_and_never_the_shorts_cuts(tmp_path):
+    cfg = playlist.load()
+    clips = tmp_path / "clips"; clips.mkdir()
+    (clips / "bw-n01-clip.mp3").write_bytes(b"x" * 10)  # a Shorts cut exists; it must not be picked
+    got = playlist.full_songs(cfg["songs"])
+    assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]
+    assert sum(s["group"] == "jam" for s in got) == 6 and all(s["path"].name == s["file"] for s in got)
+    assert not any("clip" in str(s["path"]) for s in got)
 
 
-def test_no_clips_falls_back_to_songs_without_jams(tmp_path):
-    songs = [{"file": "bw-n01.mp3", "group": "fans", "path": Path("x")}, {"file": "bw-jam-1.mp3", "group": "jam", "path": Path("y")}]
-    got = playlist.choose_sources(songs, tmp_path)
-    assert [s["file"] for s in got] == ["bw-n01.mp3"]
+def test_nothing_restarts_the_encoder_but_it_ending_on_its_own():
+    src = (Path(__file__).resolve().parent.parent / "run.py").read_text()
+    for gone in ("RESCAN_EVERY", "REWEIGHT_EVERY", "new clips ready", "votes changed the weights", "choose_sources"):
+        assert gone not in src
+    assert src.count("self.launch()") == 2  # the first start, and the relaunch after ffmpeg ends by itself
+    assert src.count("self.halt_ffmpeg()") == 1  # only at shutdown
 
 
 def test_playlist_json_ids_match_audio_prefix():
@@ -145,7 +149,7 @@ def test_playlist_features_the_six_story_takes_until_thursday_noon():
     cfg = playlist.load()
     story = [s for s in cfg["songs"] if s["group"] == "story"]
     assert [s["file"] for s in story] == [f"bw-story-{n}.mp3" for n in ("1", "1b", "7", "7b", "13", "13b")]
-    assert all(s["feature"] == {"weight": 1, "until": "2026-10-29T12:00:00-04:00"} for s in story)
+    assert all(s["feature"] == {"weight": 2, "until": "2026-10-29T12:00:00-04:00"} for s in story)
 
 
 def test_viewer_log_rows_share_the_play_clock_format(tmp_path):

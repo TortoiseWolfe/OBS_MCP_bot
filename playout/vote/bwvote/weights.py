@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 MIN_VOTES = 2
 MIN_WEIGHT, MAX_WEIGHT = 0.25, 3.0
-ROUNDS = 12  # rounds written into one audio list; the list is rebuilt at every encoder restart
+ROUNDS = 40  # rounds written into one audio list (about 80 hours); the list is rebuilt only at the program's next start
 
 
 def weight(up, down):

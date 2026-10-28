@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Band Wagon fan-vote stream: loops song clips to Twitch, chat votes !up / !down on the song playing.
+"""Band Wagon fan-vote stream: loops the full songs (the practice jams too) to Twitch; chat votes !up / !down on the song playing.
+
+One ffmpeg runs the whole list start to finish. Votes are saved and shown on screen but change the play order only at the
+next start of this program (the scheduled stop and restart); the only relaunch is ffmpeg ending on its own.
 
 usage:
   run.py live [--bandwidthtest] [--seconds N]   push to the channel (key read from the OBS profile, never shown)
@@ -26,9 +29,6 @@ sys.path.insert(0, str(HERE.parent))  # playout/: the shared chat reader and key
 import chat_tally  # noqa: E402
 STATE = HERE / "state"
 VOTE_LAG = 6.0       # seconds: what a viewer sees is about this far behind the encoder
-RESCAN_EVERY = 60    # seconds between looks at the clips folder
-MIN_RESTART_GAP = 300
-REWEIGHT_EVERY = 3600   # seconds: the earliest the encoder is restarted to apply new weights
 
 
 def build_cmd(bg, list_file, out_dir, font, target, fmt, seconds=None):
@@ -62,9 +62,9 @@ class Stream:
         self.all_songs = cfg["songs"]
         self.songs, self.timeline = [], None
         self.pos, self.pos_at = 0.0, time.time()
-        self.proc, self.started_at, self.sources = None, 0.0, None
+        self.proc, self.started_at = None, 0.0
         self.opened = False
-        self.weights_sig, self.last_play = None, None
+        self.last_play = None
 
     def announce(self):
         return overlay.active_announcement(self.cfg.get("announcements"))
@@ -97,7 +97,7 @@ class Stream:
     # --- ffmpeg ----------------------------------------------------------
     def launch(self):
         STATE.mkdir(exist_ok=True)
-        chosen = playlist.choose_sources(self.all_songs, self.cfg["clips_dir"])
+        chosen = playlist.full_songs(self.all_songs)
         playlist.with_durations(chosen)
         lead = None
         if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the loop)
@@ -109,8 +109,6 @@ class Stream:
         after = self.timeline.song_at(self.position())["id"] if self.timeline and not lead else None
         seq = weights.sequence(chosen, self.tally, after_id=after)
         self.songs, self.timeline = chosen, playlist.Timeline(seq, lead)
-        self.sources = sorted(str(s["path"]) for s in chosen)
-        self.weights_sig = weights.signature(chosen, self.tally)
         self.last_play = None
         (STATE / "list.txt").write_text(playlist.concat_list(seq, repeats=1, lead=lead))
         odd = ", ".join(f"{k.split('/')[-1][3:-4]} x{v:g}" for k, v in weights.weights(chosen, self.tally).items() if v != 1.0)
@@ -121,8 +119,7 @@ class Stream:
             self.pos, self.pos_at = 0.0, time.time()
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         self.started_at = time.time()
-        kinds = {s["kind"] for s in chosen}
-        log(f"ffmpeg started: {len(chosen)} {'/'.join(sorted(kinds))} items, loop {self.timeline.length:.0f}s")
+        log(f"ffmpeg started: {len(chosen)} full songs, loop {self.timeline.length:.0f}s")
         threading.Thread(target=self.read_progress, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self.read_errors, args=(self.proc,), daemon=True).start()
 
@@ -173,7 +170,7 @@ class Stream:
         threading.Thread(target=chat_tally.read_chat, args=(self.cfg["channel"], self.on_chat, self.stop), daemon=True).start()
         threading.Thread(target=viewers.run, args=(self.cfg["channel"], STATE / "viewers.jsonl", self.stop), daemon=True).start()
         self.launch()
-        last_save = last_scan = time.time()
+        last_save = time.time()
         while not self.stop.is_set():
             time.sleep(1)
             rc = self.proc.poll()
@@ -193,19 +190,6 @@ class Stream:
                 self.log_play(now - into, self.timeline.songs[i])
             if now - last_save > 10:
                 self.save(); last_save = now
-            if now - last_scan > RESCAN_EVERY:
-                last_scan = now
-                fresh = sorted(str(s["path"]) for s in playlist.choose_sources(self.all_songs, self.cfg["clips_dir"]))
-                if fresh != self.sources and now - self.started_at > MIN_RESTART_GAP and p > self.timeline.lead_length:
-                    log("new clips ready; restarting the encoder with the longer list")
-                    self.halt_ffmpeg(); self.launch()
-            # votes changed the weights: restart the encoder (a ~10 s pause) with the new order, at most once an hour,
-            # and only when the song playing is about to end
-            if (now - self.started_at > REWEIGHT_EVERY and p > self.timeline.lead_length
-                    and weights.signature(self.songs, self.tally) != self.weights_sig
-                    and self.timeline.songs[i]["seconds"] - into < 4):
-                log("votes changed the weights; restarting the encoder with the new order")
-                self.halt_ffmpeg(); self.launch()
         self.halt_ffmpeg(); self.save()
 
 
@@ -225,7 +209,6 @@ def main():
     ap.add_argument("--playlist", default=str(HERE / "playlist.json"))
     a = ap.parse_args()
     cfg = playlist.load(a.playlist)
-    cfg["clips_dir"] = cfg["audio_dir"] + "/clips"
     if a.channel:
         cfg["channel"] = a.channel
     STATE.mkdir(exist_ok=True)

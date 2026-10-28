@@ -17,27 +17,10 @@ def load(path=HERE / "playlist.json"):
     return cfg
 
 
-CLIP_EXTS = (".mp3", ".m4a", ".wav", ".ogg", ".flac")
-
-
-def find_clip(clips_dir, file):
-    """The clip made from a song: clips/<song stem>*.<audio ext>; the newest match, or None."""
-    stem = Path(file).stem
-    hits = [p for p in Path(clips_dir).expanduser().glob(stem + "*")
-            if p.suffix.lower() in CLIP_EXTS and not p.name[len(stem)].isalnum()]  # bw-jam-1 must not take bw-jam-1b's clip
-    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
-
-
-def choose_sources(songs, clips_dir):
-    """Clips when any are ready (only the songs that have one), else the full songs without the 7-minute jams."""
-    ready = []
-    for s in songs:
-        c = find_clip(clips_dir, s["file"])
-        if c and c.stat().st_size > 0:
-            ready.append(dict(s, path=c, kind="clip"))
-    if ready:
-        return ready
-    return [dict(s, kind="song") for s in songs if s["group"] != "jam"]
+def full_songs(songs):
+    """Every song in the list at full length, the 7-minute jam takes included. The 30 to 60 second Shorts cuts
+    in clips/ are for YouTube and never play on the stream."""
+    return [dict(s, kind="song") for s in songs]
 
 
 def probe_seconds(path):

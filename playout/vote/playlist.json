@@ -42,11 +42,11 @@
     {"file": "bw-fusion-2.mp3",  "title": "Warehouse Wagon", "group": "fusion"},
     {"file": "bw-fusion-2b.mp3", "title": "Warehouse Wagon, take 2", "group": "fusion"},
     {"file": "bw-jam-3b.mp3", "title": "Should the Machines Take Over? Take 2: long jam B", "group": "jam"},
-    {"file": "bw-story-1.mp3", "title": "Breath on Glass (overture)", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-1b.mp3", "title": "Breath on Glass (overture), take 2", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-7.mp3", "title": "The Perfect Show", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-7b.mp3", "title": "The Perfect Show, take 2", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-13.mp3", "title": "Breath on Glass (reprise)", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-13b.mp3", "title": "Breath on Glass (reprise), take 2", "group": "story", "feature": {"weight": 1, "until": "2026-10-29T12:00:00-04:00"}}
+    {"file": "bw-story-1.mp3", "title": "Breath on Glass (overture)", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
+    {"file": "bw-story-1b.mp3", "title": "Breath on Glass (overture), take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
+    {"file": "bw-story-7.mp3", "title": "The Perfect Show", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
+    {"file": "bw-story-7b.mp3", "title": "The Perfect Show, take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
+    {"file": "bw-story-13.mp3", "title": "Breath on Glass (reprise)", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
+    {"file": "bw-story-13b.mp3", "title": "Breath on Glass (reprise), take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}}
   ]
 }
