@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import sys
@@ -275,6 +276,25 @@ def test_no_take_twice_until_all_have_played_then_a_new_cycle(tmp_path):
     assert sorted(second) == sorted(first) and second[0] != first[-1]  # a new cycle; no back-to-back at the join
     again = picker.Picker(tmp_path / "p.json", random.Random(2))     # a restart carries on the cycle
     assert again.cycle == p.cycle and again.last == p.last
+
+
+def test_the_queue_plays_first_in_order_skips_ids_not_on_the_air_and_leaves_the_draw_when_empty(tmp_path):
+    import random
+    from bwvote import picker
+    songs = [{"id": f"t{i}", "title": str(i)} for i in range(5)]
+    q = tmp_path / "queue.json"
+    q.write_text('["t3", "gone", "t1"]')
+    assert picker.take_queued(q, songs)["id"] == "t3"
+    assert json.loads(q.read_text()) == ["gone", "t1"]
+    assert picker.take_queued(q, songs)["id"] == "t1"  # "gone" is not on the air: dropped, not waited for
+    assert json.loads(q.read_text()) == []
+    assert picker.take_queued(q, songs) is None
+    assert picker.take_queued(tmp_path / "none.json", songs) is None
+    q.write_text("not json")
+    assert picker.take_queued(q, songs) is None
+    p = picker.Picker(tmp_path / "p.json", random.Random(1))
+    p.note(songs[3])  # a queued take counts as heard and as last, so the draw does not repeat it
+    assert p.last == "t3" and "t3" in p.cycle and "t3" in p.heard
 
 
 def test_a_new_take_is_heard_within_a_few_songs_and_liked_ones_come_earlier(tmp_path):

@@ -128,6 +128,10 @@ class Stream:
         """The next take, drawn from the catalog as it stands now (new takes included)."""
         songs = catalog.load(self.cfg)
         self.all_songs = songs
+        queued = picker.take_queued(STATE / "queue.json", songs)  # the show's running order: ids in queue.json play first, in order
+        if queued:
+            self.picker.note(queued)
+            return queued
         return self.picker.pick(songs, self.tally)
 
     def launch(self):
