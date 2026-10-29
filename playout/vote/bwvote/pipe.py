@@ -53,9 +53,10 @@ class LiveTimeline:
 class Feeder(threading.Thread):
     """Writes take after take into `sink` (the encoder's stdin). `choose()` gives the next take; `first` plays first if given."""
 
-    def __init__(self, sink, timeline, choose, first=None, log=print, decoder=decode_cmd):
+    def __init__(self, sink, timeline, choose, first=None, log=print, decoder=decode_cmd, skip=None):
         super().__init__(daemon=True)
         self.sink, self.timeline, self.choose, self.first, self.log, self.decoder = sink, timeline, choose, first, log, decoder
+        self.skip = skip  # a callable that is true once when the song on the air should be cut and the next one start now
         self.stop, self.started, self.sent = threading.Event(), threading.Event(), 0
 
     def run(self):
@@ -84,6 +85,11 @@ class Feeder(threading.Thread):
                     self.sink.flush()
                     n += len(chunk)
                     self.sent += len(chunk)
+                    if self.skip and self.skip():
+                        nxt = self.choose()  # drawn fresh, so the queue's head plays next
+                        self.timeline.upcoming = nxt
+                        self.log(f"skip: cutting {cur['id']} after {n / BYTES_PER_S:.1f} s")
+                        break
             except (BrokenPipeError, ValueError, OSError):
                 self.log("encoder pipe closed; feeder stops")
                 return
