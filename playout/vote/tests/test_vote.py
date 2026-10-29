@@ -172,6 +172,18 @@ def test_render_puts_the_announcement_on_the_note_line(tmp_path):
     assert (tmp_path / "note.txt").read_text() == " "
 
 
+def test_note_line_shows_the_youtube_address_unless_an_announcement_takes_it(tmp_path):
+    from bwvote import overlay
+    song = {"id": "band-wagon/bw-n09.mp3", "title": "T"}
+    ids = {"bw-n09": "xJyDLcwGRgc"}
+    overlay.render(tmp_path, song, song, Tally(), [song], None, ids)
+    assert (tmp_path / "note.txt").read_text() == "YouTube youtu.be/xJyDLcwGRgc"
+    overlay.render(tmp_path, song, song, Tally(), [song], "6 PM show", ids)
+    assert (tmp_path / "note.txt").read_text() == "6 PM show"
+    overlay.render(tmp_path, {"id": "other.mp3", "title": "T"}, song, Tally(), [song], None, ids)
+    assert (tmp_path / "note.txt").read_text() == " "
+
+
 def test_each_song_gets_its_own_cover_and_falls_back_to_the_show_cover(tmp_path):
     from PIL import Image
     from bwvote import covers

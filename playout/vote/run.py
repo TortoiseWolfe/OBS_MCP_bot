@@ -89,6 +89,21 @@ class Stream:
             except Exception as e:  # a bad picture must never stop the stream: keep the one on screen
                 log(f"cover {cover.name} not shown: {e}")
 
+    def youtube_ids(self):
+        """{song file stem: YouTube video id} from the file named by "youtube_ids" in playlist.json; read again when the file changes."""
+        path = Path(self.cfg.get("youtube_ids", "")).expanduser() if self.cfg.get("youtube_ids") else None
+        try:
+            stamp = path.stat().st_mtime if path else None
+        except OSError:
+            stamp = None
+        if stamp != getattr(self, "_yt_stamp", None):
+            try:
+                raw = json.loads(path.read_text()) if stamp else {}
+            except (OSError, ValueError):
+                raw = {}
+            self._yt, self._yt_stamp = {Path(k).stem: v for k, v in raw.items()}, stamp
+        return getattr(self, "_yt", {})
+
     def announce(self):
         return overlay.active_announcement(self.cfg.get("announcements"))
 
@@ -173,7 +188,7 @@ class Stream:
         if not self.feeder.started.wait(30):
             log("the first take did not start within 30 s")
         else:
-            overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
+            overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce(), self.youtube_ids())
             self.show_cover(self.timeline.song_at(0))
         log(f"ffmpeg started: {len(self.all_songs)} takes in the catalog, next take chosen as each song starts")
         threading.Thread(target=self.read_progress, args=(self.proc,), daemon=True).start()
@@ -263,7 +278,7 @@ class Stream:
                 if self.slide_now:  # the window ended: the song's cover and the words come back
                     self.slide_now = None
                     self.cover_now = self.cover_idx = None
-                overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce())
+                overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce(), self.youtube_ids())
             now = time.time()
             i, into = self.timeline.at(p)
             if i != self.last_play:
