@@ -278,6 +278,12 @@ def test_no_take_twice_until_all_have_played_then_a_new_cycle(tmp_path):
     assert again.cycle == p.cycle and again.last == p.last
 
 
+def test_an_entry_with_its_own_title_keeps_it():
+    from bwvote import catalog
+    assert catalog._title({"song": "a", "take": "album-01-x", "title": "Breath on Glass (overture)"}, {}) == "Breath on Glass (overture)"
+    assert catalog._title({"song": "story-1", "take": "story-1-t3"}, {"story-1": "Breath"}) == "Breath, take 3"
+
+
 def test_the_queue_plays_first_in_order_skips_ids_not_on_the_air_and_leaves_the_draw_when_empty(tmp_path):
     import random
     from bwvote import picker
