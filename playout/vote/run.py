@@ -240,7 +240,7 @@ class Stream:
                 continue
             p = self.position()
             pv = self.picture_position()
-            slide = slideshow.current(self.cfg.get("slideshow"))
+            slide = slideshow.current(self.cfg.get("slideshow"), song=self.timeline.song_at(pv))
             if slide:  # a show's slideshow window: the whole picture is the image, no vote words over it; votes and plays go on as usual
                 if slide != self.slide_now:
                     try:

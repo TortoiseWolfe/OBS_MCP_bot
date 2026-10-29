@@ -402,6 +402,29 @@ def test_slideshow_cycles_inside_its_windows_only(tmp_path):
     assert (tmp_path / "title.txt").read_text() == " "
 
 
+def test_slideshow_shows_the_playing_songs_own_cards(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    from bwvote import slideshow
+    (tmp_path / "cards").mkdir()
+    for n in ("c.jpg", "l.jpg", "l2.jpg", "solo.jpg"):
+        (tmp_path / "cards" / n).write_bytes(b"x")
+    (tmp_path / "track-cards.json").write_text(json.dumps({
+        "story-3-t0": ["cards/c.jpg", "cards/l.jpg", "cards/l2.jpg"], "bw-n09": ["cards/solo.jpg"], "gone": ["cards/missing.jpg"]}))
+    cfg = {"images": [str(tmp_path / "loop.png")], "seconds": 25, "track_cards": str(tmp_path / "track-cards.json"),
+           "windows": [{"from": "2026-10-29T18:00:00-04:00", "until": "2026-10-29T19:00:00-04:00"}]}
+    t0 = datetime(2026, 10, 29, 22, 0, 0, tzinfo=timezone.utc)
+    at = lambda k: datetime.fromtimestamp(t0.timestamp() + k * 25 + 1, timezone.utc)
+    song = {"id": "band-wagon/takes/story-3-t0"}
+    assert [slideshow.current(cfg, at(k), song=song).name for k in range(4)] == ["c.jpg", "l.jpg", "l2.jpg", "c.jpg"]  # card, lyrics pages, around again
+    assert slideshow.current(cfg, at(1), song={"id": "band-wagon/bw-n09.mp3"}).name == "solo.jpg"  # an instrumental holds its one card
+    for other in ({"id": "band-wagon/takes/unmapped"}, {"id": "band-wagon/takes/gone"}, None):  # no cards, or files missing: the image loop
+        assert slideshow.current(cfg, at(1), song=other).name == "loop.png"
+    cfg["track_cards"] = str(tmp_path / "nope.json")
+    assert slideshow.current(cfg, at(1), song=song).name == "loop.png"  # a missing map never stops the show
+    assert slideshow.current(cfg, datetime(2026, 10, 29, 23, 0, 0, tzinfo=timezone.utc), song=song) is None  # outside the window, still nothing
+
+
 # --- purge: move a take aside, bring it back -----------------------------------------------------------------------
 
 def _settled(tmp_path, takes):
