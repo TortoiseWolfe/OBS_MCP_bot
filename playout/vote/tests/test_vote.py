@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import sys
@@ -171,6 +172,18 @@ def test_render_puts_the_announcement_on_the_note_line(tmp_path):
     assert (tmp_path / "note.txt").read_text() == " "
 
 
+def test_note_line_shows_the_youtube_address_unless_an_announcement_takes_it(tmp_path):
+    from bwvote import overlay
+    song = {"id": "band-wagon/bw-n09.mp3", "title": "T"}
+    ids = {"bw-n09": "xJyDLcwGRgc"}
+    overlay.render(tmp_path, song, song, Tally(), [song], None, ids)
+    assert (tmp_path / "note.txt").read_text() == "YouTube youtu.be/xJyDLcwGRgc"
+    overlay.render(tmp_path, song, song, Tally(), [song], "6 PM show", ids)
+    assert (tmp_path / "note.txt").read_text() == "6 PM show"
+    overlay.render(tmp_path, {"id": "other.mp3", "title": "T"}, song, Tally(), [song], None, ids)
+    assert (tmp_path / "note.txt").read_text() == " "
+
+
 def test_each_song_gets_its_own_cover_and_falls_back_to_the_show_cover(tmp_path):
     from PIL import Image
     from bwvote import covers
@@ -277,6 +290,31 @@ def test_no_take_twice_until_all_have_played_then_a_new_cycle(tmp_path):
     assert again.cycle == p.cycle and again.last == p.last
 
 
+def test_an_entry_with_its_own_title_keeps_it():
+    from bwvote import catalog
+    assert catalog._title({"song": "a", "take": "album-01-x", "title": "Breath on Glass (overture)"}, {}) == "Breath on Glass (overture)"
+    assert catalog._title({"song": "story-1", "take": "story-1-t3"}, {"story-1": "Breath"}) == "Breath, take 3"
+
+
+def test_the_queue_plays_first_in_order_skips_ids_not_on_the_air_and_leaves_the_draw_when_empty(tmp_path):
+    import random
+    from bwvote import picker
+    songs = [{"id": f"t{i}", "title": str(i)} for i in range(5)]
+    q = tmp_path / "queue.json"
+    q.write_text('["t3", "gone", "t1"]')
+    assert picker.take_queued(q, songs)["id"] == "t3"
+    assert json.loads(q.read_text()) == ["gone", "t1"]
+    assert picker.take_queued(q, songs)["id"] == "t1"  # "gone" is not on the air: dropped, not waited for
+    assert json.loads(q.read_text()) == []
+    assert picker.take_queued(q, songs) is None
+    assert picker.take_queued(tmp_path / "none.json", songs) is None
+    q.write_text("not json")
+    assert picker.take_queued(q, songs) is None
+    p = picker.Picker(tmp_path / "p.json", random.Random(1))
+    p.note(songs[3])  # a queued take counts as heard and as last, so the draw does not repeat it
+    assert p.last == "t3" and "t3" in p.cycle and "t3" in p.heard
+
+
 def test_a_new_take_is_heard_within_a_few_songs_and_liked_ones_come_earlier(tmp_path):
     import random
     from bwvote import picker
@@ -333,6 +371,28 @@ def test_the_pipe_carries_song_after_song_gaplessly_and_skips_one_that_will_not_
     assert f.started.is_set() and tl.upcoming is not None
 
 
+def test_a_skip_cuts_the_song_and_the_freshly_chosen_next_one_starts_at_once(tmp_path):
+    import io
+    from bwvote import pipe
+    tl, sink, logs = pipe.LiveTimeline(), io.BytesIO(), []
+    songs = [{"id": f"s{i}", "title": f"S{i}", "path": tmp_path / f"s{i}.pcm"} for i in range(3)]
+    for s in songs:
+        s["path"].write_bytes(b"\x01\x00" * 48000 * 2 * 4)  # 4 s of raw sound
+    calls = {"n": 0, "skip": 0}
+    def choose():
+        calls["n"] += 1
+        if calls["n"] >= 4:
+            f.stop.set()
+        return songs[1] if calls["n"] == 1 else songs[2] if calls["n"] == 2 else songs[0]
+    def skip():
+        calls["skip"] += 1
+        return calls["skip"] == 15  # 1.5 s into the first song, once
+    f = pipe.Feeder(sink, tl, choose, first=songs[0], decoder=lambda p: ["cat", str(p)], log=logs.append, skip=skip)
+    f.run()
+    assert [s["id"] for s in tl.songs[:2]] == ["s0", "s2"]  # s1 was drawn as next, then the skip drew s2 instead
+    assert 1.4 < tl.starts[1] < 1.6 and any("skip: cutting s0" in m for m in logs)
+
+
 def test_a_factory_take_s_votes_also_count_toward_its_song_for_the_factory_to_steer_by(tmp_path):
     from bwvote import catalog
     cfg = _cfg(tmp_path, [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2)])
@@ -374,3 +434,154 @@ def test_slideshow_cycles_inside_its_windows_only(tmp_path):
     assert out.size == (1280, 720) and out.getpixel((640, 360)) == (200, 30, 30) and out.getpixel((5, 360)) == (0, 0, 0)
     slideshow.blank_text(tmp_path)
     assert (tmp_path / "title.txt").read_text() == " "
+
+
+def test_slideshow_shows_the_playing_songs_own_cards(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    from bwvote import slideshow
+    (tmp_path / "cards").mkdir()
+    for n in ("c.jpg", "l.jpg", "l2.jpg", "solo.jpg"):
+        (tmp_path / "cards" / n).write_bytes(b"x")
+    (tmp_path / "track-cards.json").write_text(json.dumps({
+        "story-3-t0": ["cards/c.jpg", "cards/l.jpg", "cards/l2.jpg"], "bw-n09": ["cards/solo.jpg"], "gone": ["cards/missing.jpg"]}))
+    cfg = {"images": [str(tmp_path / "loop.png")], "seconds": 25, "track_cards": str(tmp_path / "track-cards.json"),
+           "windows": [{"from": "2026-10-29T18:00:00-04:00", "until": "2026-10-29T19:00:00-04:00"}]}
+    t0 = datetime(2026, 10, 29, 22, 0, 0, tzinfo=timezone.utc)
+    at = lambda k: datetime.fromtimestamp(t0.timestamp() + k * 25 + 1, timezone.utc)
+    song = {"id": "band-wagon/takes/story-3-t0"}
+    assert [slideshow.current(cfg, at(k), song=song).name for k in range(4)] == ["c.jpg", "l.jpg", "l2.jpg", "c.jpg"]  # card, lyrics pages, around again
+    assert slideshow.current(cfg, at(1), song={"id": "band-wagon/bw-n09.mp3"}).name == "solo.jpg"  # an instrumental holds its one card
+    for other in ({"id": "band-wagon/takes/unmapped"}, {"id": "band-wagon/takes/gone"}, None):  # no cards, or files missing: the image loop
+        assert slideshow.current(cfg, at(1), song=other).name == "loop.png"
+    cfg["track_cards"] = str(tmp_path / "nope.json")
+    assert slideshow.current(cfg, at(1), song=song).name == "loop.png"  # a missing map never stops the show
+    assert slideshow.current(cfg, datetime(2026, 10, 29, 23, 0, 0, tzinfo=timezone.utc), song=song) is None  # outside the window, still nothing
+
+
+# --- purge: move a take aside, bring it back -----------------------------------------------------------------------
+
+def _settled(tmp_path, takes):
+    """A cfg whose catalog holds `takes`, loaded as if 100 s had passed and every file were 60 s long."""
+    from bwvote import catalog
+    cfg = _cfg(tmp_path, takes=takes)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    return cfg, lambda: catalog.load(cfg, now=time.time() + 100, probe=lambda p: 60.0)
+
+
+def test_a_purged_take_moves_aside_is_never_offered_and_restore_brings_it_back(tmp_path):
+    from bwvote import purge
+    from bwvote.picker import Picker
+    takes = [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2)]
+    cfg, load = _settled(tmp_path, takes)
+    victim = next(s for s in load() if s["id"].endswith("story-1-t2"))
+    original = Path(victim["path"])
+    purge.purge(cfg, victim, "voted to the bottom")
+    assert not original.exists() and (original.parent / "_purged" / original.name).is_file()  # moved, not deleted
+    assert purge.load(cfg)[victim["id"]]["reason"] == "voted to the bottom"
+    assert victim["id"] not in {s["id"] for s in load()}
+    picker, t = Picker(tmp_path / "picker.json"), Tally()
+    assert all(picker.pick(load(), t)["id"] != victim["id"] for _ in range(40))
+    purge.restore(cfg, victim["id"])
+    assert original.is_file() and victim["id"] in {s["id"] for s in load()} and purge.load(cfg) == {}
+
+
+def test_a_playlist_song_can_be_purged_too_and_a_second_purge_or_a_bad_restore_is_refused(tmp_path):
+    import pytest
+    from bwvote import catalog, purge
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    song = cfg["songs"][0]
+    purge.purge(cfg, song)
+    assert song["id"] not in {s["id"] for s in catalog.load(cfg)}
+    with pytest.raises(ValueError):
+        purge.purge(cfg, song)
+    with pytest.raises(ValueError):
+        purge.restore(cfg, "nothing-here")
+    (tmp_path / song["file"]).write_bytes(b"new")  # something now sits at the original place
+    with pytest.raises(ValueError):
+        purge.restore(cfg, song["id"])
+
+
+def test_bottom_flags_enough_voters_at_the_weight_floor_only():
+    songs = [{"id": k, "title": k} for k in "abcd"]
+    t = _tally_with([("a", 0, 3), ("b", 1, 1), ("c", 0, 1), ("d", 5, 0)])
+    assert [s["id"] for s in t.bottom(songs)] == ["a"]  # b is a tie, c has one stray vote, d is liked
+    assert [r[0]["id"] for r in t.ranked_all(songs)] == ["d", "b", "c", "a"]
+
+
+def test_export_keeps_purged_takes_marked_and_their_votes_count_toward_the_song():
+    t = _tally_with([("x-t1", 1, 0), ("x-t2", 0, 2)])
+    ex = t.export([{"id": "x-t1", "title": "X, take 1", "song": "x"}],
+                  {"x-t2": {"title": "X, take 2", "song": "x"}})
+    assert ex["songs"]["x-t2"] == {"title": "X, take 2", "up": 0, "down": 2, "purged": True}
+    assert ex["songs"]["x"]["up"] == 1 and ex["songs"]["x"]["down"] == 2
+
+
+def _serve(cfg, tmp_path, allow):
+    from http.server import ThreadingHTTPServer
+    from bwvote import control
+    hosts = set()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), control.make_handler(cfg, tmp_path / "state", allow, hosts))
+    hosts.add(f"127.0.0.1:{server.server_address[1]}")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _call(server, method, path, body=None, host=None):
+    import http.client
+    import json
+    port = server.server_address[1]
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.putrequest(method, path, skip_host=True)
+    c.putheader("Host", host or f"127.0.0.1:{port}")
+    data = json.dumps(body).encode() if body is not None else b""
+    if body is not None:
+        c.putheader("Content-Length", str(len(data)))
+    c.endheaders(data)
+    r = c.getresponse()
+    return r.status, r.read().decode()
+
+
+def test_the_control_page_answers_only_the_one_allowed_address_and_purges_and_restores(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    (tmp_path / "state").mkdir()
+    other = _serve(cfg, tmp_path, "10.9.9.9")  # a client at any other address
+    try:
+        for method, path, body in [("GET", "/", None), ("POST", "/purge", {"id": cfg["songs"][0]["id"]})]:
+            code, _ = _call(other, method, path, body)
+            assert code == 403
+        assert (tmp_path / cfg["songs"][0]["file"]).is_file() and not cfg["purged_file"].exists()  # nothing was written or moved
+    finally:
+        other.shutdown()
+    mine = _serve(cfg, tmp_path, "127.0.0.1")
+    try:
+        code, page = _call(mine, "GET", "/")
+        assert code == 200 and "Song 1" in page and "Purge" in page
+        assert _call(mine, "GET", "/", host="evil.example:80")[0] == 403  # Host must be the page's own address
+        sid = cfg["songs"][0]["id"]
+        assert _call(mine, "POST", "/purge", {"id": sid, "reason": "owner's choice"})[0] == 200
+        assert not (tmp_path / cfg["songs"][0]["file"]).exists()
+        assert "Moved aside (1)" in _call(mine, "GET", "/")[1]
+        assert _call(mine, "POST", "/restore", {"id": sid})[0] == 200
+        assert (tmp_path / cfg["songs"][0]["file"]).is_file()
+        assert _call(mine, "POST", "/purge", {"id": "band-wagon/nope.mp3"})[0] == 404
+    finally:
+        mine.shutdown()
+
+
+def test_a_listed_forwarder_address_is_answered_and_an_unlisted_one_is_not(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    (tmp_path / "state").mkdir()
+    via_forwarder = _serve(cfg, tmp_path, {"192.168.1.2", "127.0.0.1"})  # the client here is 127.0.0.1, as behind the Windows port forward
+    try:
+        assert _call(via_forwarder, "GET", "/")[0] == 200
+    finally:
+        via_forwarder.shutdown()
+    unlisted = _serve(cfg, tmp_path, {"192.168.1.2"})
+    try:
+        assert _call(unlisted, "GET", "/")[0] == 403
+    finally:
+        unlisted.shutdown()

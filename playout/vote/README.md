@@ -18,6 +18,10 @@ python3 run.py live --bandwidthtest --seconds 60        # Twitch speed test, not
 python3 run.py live                                     # go live
 python3 run.py report                                   # hourly tally line
 python3 run.py stop
+python3 run.py bottom                                   # takes voted to the bottom
+python3 run.py purge TAKE_ID --reason "..."             # move a take aside (file kept in _purged, never deleted)
+python3 run.py purge --restore TAKE_ID                  # bring it back
+python3 run.py control                                  # purge control page; set "control": {"allow", "bind", "port": 8780, optional "forwarders" and "hosts" behind a port forward (see bwvote/control.py)} in playlist.json
 python3 -m pytest -q -p no:cacheprovider tests
 ```
 

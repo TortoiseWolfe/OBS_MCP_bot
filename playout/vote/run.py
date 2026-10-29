@@ -11,6 +11,10 @@ usage:
   run.py local --out FILE --seconds N           same picture and sound into a local file, for a look
   run.py report                                 print the hourly tally line from the saved votes
   run.py stop                                   ask a running stream to stop
+  run.py purge ID [--reason TEXT]               move a take aside (file kept in _purged); the stream leaves it out within a song or two
+  run.py purge --restore ID                     bring it back
+  run.py bottom                                 list the takes voted to the bottom
+  run.py control                                the purge control page (separate process; answers only cfg["control"]["allow"])
 Anything you type in chat other than !up / !down is ignored and never stored or shown.
 """
 import argparse
@@ -24,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, catalog, covers, ingest, meter, overlay, picker, pipe, playlist, slideshow, viewers
+from bwvote import background, catalog, control, covers, ingest, meter, overlay, picker, pipe, playlist, purge, slideshow, viewers
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -85,6 +89,21 @@ class Stream:
             except Exception as e:  # a bad picture must never stop the stream: keep the one on screen
                 log(f"cover {cover.name} not shown: {e}")
 
+    def youtube_ids(self):
+        """{song file stem: YouTube video id} from the file named by "youtube_ids" in playlist.json; read again when the file changes."""
+        path = Path(self.cfg.get("youtube_ids", "")).expanduser() if self.cfg.get("youtube_ids") else None
+        try:
+            stamp = path.stat().st_mtime if path else None
+        except OSError:
+            stamp = None
+        if stamp != getattr(self, "_yt_stamp", None):
+            try:
+                raw = json.loads(path.read_text()) if stamp else {}
+            except (OSError, ValueError):
+                raw = {}
+            self._yt, self._yt_stamp = {Path(k).stem: v for k, v in raw.items()}, stamp
+        return getattr(self, "_yt", {})
+
     def announce(self):
         return overlay.active_announcement(self.cfg.get("announcements"))
 
@@ -124,10 +143,23 @@ class Stream:
         """The next take, drawn from the catalog as it stands now (new takes included)."""
         songs = catalog.load(self.cfg)
         self.all_songs = songs
+        queued = picker.take_queued(STATE / "queue.json", songs)  # the show's running order: ids in queue.json play first, in order
+        if queued:
+            self.picker.note(queued)
+            return queued
         return self.picker.pick(songs, self.tally)
+
+    def skip_requested(self):
+        """touch state/skip to cut the song on the air and start the next now (the file is used up)."""
+        try:
+            (STATE / "skip").unlink()
+            return True
+        except OSError:
+            return False
 
     def launch(self):
         STATE.mkdir(exist_ok=True)
+        (STATE / "skip").unlink(missing_ok=True)  # a stale request must not cut the first song
         self.all_songs = catalog.load(self.cfg)
         first = None
         if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the draw)
@@ -151,12 +183,12 @@ class Stream:
         self.started_at = time.time()
         if self.feeder:
             self.feeder.stop.set()
-        self.feeder = pipe.Feeder(self.proc.stdin, self.timeline, self.choose, first, log=log)
+        self.feeder = pipe.Feeder(self.proc.stdin, self.timeline, self.choose, first, log=log, skip=self.skip_requested)
         self.feeder.start()
         if not self.feeder.started.wait(30):
             log("the first take did not start within 30 s")
         else:
-            overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce())
+            overlay.render(STATE, self.timeline.song_at(0), self.timeline.next_song(0), self.tally, self.all_songs, self.announce(), self.youtube_ids())
             self.show_cover(self.timeline.song_at(0))
         log(f"ffmpeg started: {len(self.all_songs)} takes in the catalog, next take chosen as each song starts")
         threading.Thread(target=self.read_progress, args=(self.proc,), daemon=True).start()
@@ -210,7 +242,7 @@ class Stream:
     def save(self):
         write_json(STATE / "tally.json", self.tally.state())
         if self.cfg.get("export_to"):
-            write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs))
+            write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs, purge.load(self.cfg)))
 
     def run(self):
         if self.cfg.get("channel"):  # a test encode into a file sets no channel and reads no chat
@@ -232,7 +264,7 @@ class Stream:
                 continue
             p = self.position()
             pv = self.picture_position()
-            slide = slideshow.current(self.cfg.get("slideshow"))
+            slide = slideshow.current(self.cfg.get("slideshow"), song=self.timeline.song_at(pv))
             if slide:  # a show's slideshow window: the whole picture is the image, no vote words over it; votes and plays go on as usual
                 if slide != self.slide_now:
                     try:
@@ -246,7 +278,7 @@ class Stream:
                 if self.slide_now:  # the window ended: the song's cover and the words come back
                     self.slide_now = None
                     self.cover_now = self.cover_idx = None
-                overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce())
+                overlay.render(STATE, self.timeline.song_at(pv), self.timeline.next_song(pv), self.tally, self.all_songs, self.announce(), self.youtube_ids())
             now = time.time()
             i, into = self.timeline.at(p)
             if i != self.last_play:
@@ -265,9 +297,37 @@ def log(msg):
     print(f"{time.strftime('%-I:%M:%S %p')} {msg}", flush=True)
 
 
+def side_mode(a, cfg):
+    """purge, bottom and control: they read the tally and the catalog and write only purged.json (and the files they move)."""
+    if a.mode == "control":
+        return control.serve(cfg, STATE)
+    songs = catalog.load(cfg)
+    if a.mode == "bottom":
+        for s in Tally(load_state(STATE / "tally.json")).bottom(songs):
+            print(s["id"], s["title"])
+        return
+    if not a.target:
+        sys.exit("purge needs a take id")
+    try:
+        if a.restore:
+            purge.restore(cfg, a.target)
+            print(f"restored {a.target}")
+        else:
+            song = next((s for s in songs if s["id"] == a.target), None)
+            if not song:
+                sys.exit(f"no such take on the air list: {a.target}")
+            rec = purge.purge(cfg, song, a.reason)
+            print(f"moved aside to {rec['moved_to']}")
+    except (ValueError, OSError) as e:
+        sys.exit(str(e))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["live", "local", "report", "stop"])
+    ap.add_argument("mode", choices=["live", "local", "report", "stop", "purge", "bottom", "control"])
+    ap.add_argument("target", nargs="?", help="take id, for purge")
+    ap.add_argument("--restore", action="store_true", help="with purge: bring the take back")
+    ap.add_argument("--reason", default="", help="with purge: why")
     ap.add_argument("--bandwidthtest", action="store_true")
     ap.add_argument("--channel", help="channel to read chat from (default: playlist.json)")
     ap.add_argument("--key-file", help="file holding just the stream key (default: the OBS profile)")
@@ -280,6 +340,9 @@ def main():
     if a.channel:
         cfg["channel"] = a.channel
     STATE.mkdir(exist_ok=True)
+    cfg["purged_file"] = STATE / "purged.json"
+    if a.mode in ("purge", "bottom", "control"):
+        return side_mode(a, cfg)
     if a.mode == "report":
         print(Tally(load_state(STATE / "tally.json")).report_line(catalog.load(cfg)))
         return

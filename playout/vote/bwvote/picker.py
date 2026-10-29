@@ -16,6 +16,24 @@ from .tally import write_json
 NEW_BOOST = 3.0
 
 
+def take_queued(path, songs):
+    """The first id in the queue file (a JSON list) that is on the air now, or None. It and every id before it leave the file."""
+    try:
+        queue = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(queue, list):
+        return None
+    by_id = {s["id"]: s for s in songs}
+    while queue:
+        song = by_id.get(queue.pop(0))
+        if song:
+            write_json(path, queue)
+            return song
+    write_json(path, queue)
+    return None
+
+
 class Picker:
     def __init__(self, path, rng=None):
         self.path = Path(path)
