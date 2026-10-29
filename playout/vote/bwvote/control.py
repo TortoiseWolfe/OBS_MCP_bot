@@ -4,6 +4,11 @@ A separate process from the stream (run.py control). It reads state/tally.json a
 (bwvote/purge.py) and the files it moves. It never touches the stream or OBS. It answers only the one client address set as
 cfg["control"]["allow"] (the owner's PC on the home network): any other address is refused before a header, path or body is read.
 On top of that the Host header must be the page's own address and a POST's Origin must match it.
+
+Behind the tower's Windows port forward (control-forward.ps1) every request reaches this process from the forwarder, so the
+source address seen here is loopback, not the owner's PC. Then cfg["control"] sets "bind": "127.0.0.1", "forwarders": ["127.0.0.1"]
+and "hosts": ["192.168.1.3:8780", "127.0.0.1:8780"]; the Windows firewall rule that admits only the owner's PC's address is the
+allowlist on that path, and this process is reachable from this machine only.
 """
 import html
 import json
@@ -65,6 +70,7 @@ def render(cfg, tally, songs=None):
 
 def make_handler(cfg, state_dir, allow, hosts):
     state_dir = Path(state_dir)
+    allow = {allow} if isinstance(allow, str) else set(allow)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -83,7 +89,7 @@ def make_handler(cfg, state_dir, allow, hosts):
             self._send(code, json.dumps(obj), "application/json")
 
         def _allowed(self):
-            if self.client_address[0] != allow:  # first thing: nothing else is read from anyone else
+            if self.client_address[0] not in allow:  # first thing: nothing else is read from anyone else
                 self._json(403, {"error": "not allowed"})
                 return False
             if self.headers.get("Host", "") not in hosts:
@@ -135,7 +141,8 @@ def serve(cfg, state_dir):
     allow, bind, port = c.get("allow"), c.get("bind"), int(c.get("port", 8780))
     if not (allow and bind):
         raise SystemExit('set "control": {"allow": <owner PC address>, "bind": <this machine\'s home-network address>} in playlist.json')
-    hosts = {f"{bind}:{port}"}
-    server = ThreadingHTTPServer((bind, port), make_handler(cfg, state_dir, allow, hosts))
-    print(f"control page on http://{bind}:{port}/ for {allow} only", flush=True)
+    hosts = set(c.get("hosts") or [f"{bind}:{port}"])
+    clients = {allow} | set(c.get("forwarders") or [])
+    server = ThreadingHTTPServer((bind, port), make_handler(cfg, state_dir, clients, hosts))
+    print(f"control page bound to {bind}:{port}, answers {sorted(clients)}, hosts {sorted(hosts)}", flush=True)
     server.serve_forever()

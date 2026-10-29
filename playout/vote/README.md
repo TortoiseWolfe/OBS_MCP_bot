@@ -21,7 +21,7 @@ python3 run.py stop
 python3 run.py bottom                                   # takes voted to the bottom
 python3 run.py purge TAKE_ID --reason "..."             # move a take aside (file kept in _purged, never deleted)
 python3 run.py purge --restore TAKE_ID                  # bring it back
-python3 run.py control                                  # purge control page; set "control": {"allow": <owner PC address>, "bind": <this machine's home-network address>, "port": 8780} in playlist.json
+python3 run.py control                                  # purge control page; set "control": {"allow", "bind", "port": 8780, optional "forwarders" and "hosts" behind a port forward (see bwvote/control.py)} in playlist.json
 python3 -m pytest -q -p no:cacheprovider tests
 ```
 

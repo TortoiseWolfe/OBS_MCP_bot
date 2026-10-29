@@ -486,3 +486,19 @@ def test_the_control_page_answers_only_the_one_allowed_address_and_purges_and_re
         assert _call(mine, "POST", "/purge", {"id": "band-wagon/nope.mp3"})[0] == 404
     finally:
         mine.shutdown()
+
+
+def test_a_listed_forwarder_address_is_answered_and_an_unlisted_one_is_not(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    (tmp_path / "state").mkdir()
+    via_forwarder = _serve(cfg, tmp_path, {"192.168.1.2", "127.0.0.1"})  # the client here is 127.0.0.1, as behind the Windows port forward
+    try:
+        assert _call(via_forwarder, "GET", "/")[0] == 200
+    finally:
+        via_forwarder.shutdown()
+    unlisted = _serve(cfg, tmp_path, {"192.168.1.2"})
+    try:
+        assert _call(unlisted, "GET", "/")[0] == 403
+    finally:
+        unlisted.shutdown()
