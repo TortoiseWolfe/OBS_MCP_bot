@@ -374,3 +374,115 @@ def test_slideshow_cycles_inside_its_windows_only(tmp_path):
     assert out.size == (1280, 720) and out.getpixel((640, 360)) == (200, 30, 30) and out.getpixel((5, 360)) == (0, 0, 0)
     slideshow.blank_text(tmp_path)
     assert (tmp_path / "title.txt").read_text() == " "
+
+
+# --- purge: move a take aside, bring it back -----------------------------------------------------------------------
+
+def _settled(tmp_path, takes):
+    """A cfg whose catalog holds `takes`, loaded as if 100 s had passed and every file were 60 s long."""
+    from bwvote import catalog
+    cfg = _cfg(tmp_path, takes=takes)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    return cfg, lambda: catalog.load(cfg, now=time.time() + 100, probe=lambda p: 60.0)
+
+
+def test_a_purged_take_moves_aside_is_never_offered_and_restore_brings_it_back(tmp_path):
+    from bwvote import purge
+    from bwvote.picker import Picker
+    takes = [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2)]
+    cfg, load = _settled(tmp_path, takes)
+    victim = next(s for s in load() if s["id"].endswith("story-1-t2"))
+    original = Path(victim["path"])
+    purge.purge(cfg, victim, "voted to the bottom")
+    assert not original.exists() and (original.parent / "_purged" / original.name).is_file()  # moved, not deleted
+    assert purge.load(cfg)[victim["id"]]["reason"] == "voted to the bottom"
+    assert victim["id"] not in {s["id"] for s in load()}
+    picker, t = Picker(tmp_path / "picker.json"), Tally()
+    assert all(picker.pick(load(), t)["id"] != victim["id"] for _ in range(40))
+    purge.restore(cfg, victim["id"])
+    assert original.is_file() and victim["id"] in {s["id"] for s in load()} and purge.load(cfg) == {}
+
+
+def test_a_playlist_song_can_be_purged_too_and_a_second_purge_or_a_bad_restore_is_refused(tmp_path):
+    import pytest
+    from bwvote import catalog, purge
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    song = cfg["songs"][0]
+    purge.purge(cfg, song)
+    assert song["id"] not in {s["id"] for s in catalog.load(cfg)}
+    with pytest.raises(ValueError):
+        purge.purge(cfg, song)
+    with pytest.raises(ValueError):
+        purge.restore(cfg, "nothing-here")
+    (tmp_path / song["file"]).write_bytes(b"new")  # something now sits at the original place
+    with pytest.raises(ValueError):
+        purge.restore(cfg, song["id"])
+
+
+def test_bottom_flags_enough_voters_at_the_weight_floor_only():
+    songs = [{"id": k, "title": k} for k in "abcd"]
+    t = _tally_with([("a", 0, 3), ("b", 1, 1), ("c", 0, 1), ("d", 5, 0)])
+    assert [s["id"] for s in t.bottom(songs)] == ["a"]  # b is a tie, c has one stray vote, d is liked
+    assert [r[0]["id"] for r in t.ranked_all(songs)] == ["d", "b", "c", "a"]
+
+
+def test_export_keeps_purged_takes_marked_and_their_votes_count_toward_the_song():
+    t = _tally_with([("x-t1", 1, 0), ("x-t2", 0, 2)])
+    ex = t.export([{"id": "x-t1", "title": "X, take 1", "song": "x"}],
+                  {"x-t2": {"title": "X, take 2", "song": "x"}})
+    assert ex["songs"]["x-t2"] == {"title": "X, take 2", "up": 0, "down": 2, "purged": True}
+    assert ex["songs"]["x"]["up"] == 1 and ex["songs"]["x"]["down"] == 2
+
+
+def _serve(cfg, tmp_path, allow):
+    from http.server import ThreadingHTTPServer
+    from bwvote import control
+    hosts = set()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), control.make_handler(cfg, tmp_path / "state", allow, hosts))
+    hosts.add(f"127.0.0.1:{server.server_address[1]}")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _call(server, method, path, body=None, host=None):
+    import http.client
+    import json
+    port = server.server_address[1]
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.putrequest(method, path, skip_host=True)
+    c.putheader("Host", host or f"127.0.0.1:{port}")
+    data = json.dumps(body).encode() if body is not None else b""
+    if body is not None:
+        c.putheader("Content-Length", str(len(data)))
+    c.endheaders(data)
+    r = c.getresponse()
+    return r.status, r.read().decode()
+
+
+def test_the_control_page_answers_only_the_one_allowed_address_and_purges_and_restores(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg["purged_file"] = tmp_path / "state" / "purged.json"
+    (tmp_path / "state").mkdir()
+    other = _serve(cfg, tmp_path, "10.9.9.9")  # a client at any other address
+    try:
+        for method, path, body in [("GET", "/", None), ("POST", "/purge", {"id": cfg["songs"][0]["id"]})]:
+            code, _ = _call(other, method, path, body)
+            assert code == 403
+        assert (tmp_path / cfg["songs"][0]["file"]).is_file() and not cfg["purged_file"].exists()  # nothing was written or moved
+    finally:
+        other.shutdown()
+    mine = _serve(cfg, tmp_path, "127.0.0.1")
+    try:
+        code, page = _call(mine, "GET", "/")
+        assert code == 200 and "Song 1" in page and "Purge" in page
+        assert _call(mine, "GET", "/", host="evil.example:80")[0] == 403  # Host must be the page's own address
+        sid = cfg["songs"][0]["id"]
+        assert _call(mine, "POST", "/purge", {"id": sid, "reason": "owner's choice"})[0] == 200
+        assert not (tmp_path / cfg["songs"][0]["file"]).exists()
+        assert "Moved aside (1)" in _call(mine, "GET", "/")[1]
+        assert _call(mine, "POST", "/restore", {"id": sid})[0] == 200
+        assert (tmp_path / cfg["songs"][0]["file"]).is_file()
+        assert _call(mine, "POST", "/purge", {"id": "band-wagon/nope.mp3"})[0] == 404
+    finally:
+        mine.shutdown()

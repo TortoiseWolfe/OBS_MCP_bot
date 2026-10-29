@@ -11,6 +11,10 @@ usage:
   run.py local --out FILE --seconds N           same picture and sound into a local file, for a look
   run.py report                                 print the hourly tally line from the saved votes
   run.py stop                                   ask a running stream to stop
+  run.py purge ID [--reason TEXT]               move a take aside (file kept in _purged); the stream leaves it out within a song or two
+  run.py purge --restore ID                     bring it back
+  run.py bottom                                 list the takes voted to the bottom
+  run.py control                                the purge control page (separate process; answers only cfg["control"]["allow"])
 Anything you type in chat other than !up / !down is ignored and never stored or shown.
 """
 import argparse
@@ -24,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from bwvote import background, catalog, covers, ingest, meter, overlay, picker, pipe, playlist, slideshow, viewers
+from bwvote import background, catalog, control, covers, ingest, meter, overlay, picker, pipe, playlist, purge, slideshow, viewers
 from bwvote.tally import Tally, append_jsonl, load_state, parse_command, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -210,7 +214,7 @@ class Stream:
     def save(self):
         write_json(STATE / "tally.json", self.tally.state())
         if self.cfg.get("export_to"):
-            write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs))
+            write_json(Path(self.cfg["export_to"]).expanduser(), self.tally.export(self.all_songs, purge.load(self.cfg)))
 
     def run(self):
         if self.cfg.get("channel"):  # a test encode into a file sets no channel and reads no chat
@@ -265,9 +269,37 @@ def log(msg):
     print(f"{time.strftime('%-I:%M:%S %p')} {msg}", flush=True)
 
 
+def side_mode(a, cfg):
+    """purge, bottom and control: they read the tally and the catalog and write only purged.json (and the files they move)."""
+    if a.mode == "control":
+        return control.serve(cfg, STATE)
+    songs = catalog.load(cfg)
+    if a.mode == "bottom":
+        for s in Tally(load_state(STATE / "tally.json")).bottom(songs):
+            print(s["id"], s["title"])
+        return
+    if not a.target:
+        sys.exit("purge needs a take id")
+    try:
+        if a.restore:
+            purge.restore(cfg, a.target)
+            print(f"restored {a.target}")
+        else:
+            song = next((s for s in songs if s["id"] == a.target), None)
+            if not song:
+                sys.exit(f"no such take on the air list: {a.target}")
+            rec = purge.purge(cfg, song, a.reason)
+            print(f"moved aside to {rec['moved_to']}")
+    except (ValueError, OSError) as e:
+        sys.exit(str(e))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["live", "local", "report", "stop"])
+    ap.add_argument("mode", choices=["live", "local", "report", "stop", "purge", "bottom", "control"])
+    ap.add_argument("target", nargs="?", help="take id, for purge")
+    ap.add_argument("--restore", action="store_true", help="with purge: bring the take back")
+    ap.add_argument("--reason", default="", help="with purge: why")
     ap.add_argument("--bandwidthtest", action="store_true")
     ap.add_argument("--channel", help="channel to read chat from (default: playlist.json)")
     ap.add_argument("--key-file", help="file holding just the stream key (default: the OBS profile)")
@@ -280,6 +312,9 @@ def main():
     if a.channel:
         cfg["channel"] = a.channel
     STATE.mkdir(exist_ok=True)
+    cfg["purged_file"] = STATE / "purged.json"
+    if a.mode in ("purge", "bottom", "control"):
+        return side_mode(a, cfg)
     if a.mode == "report":
         print(Tally(load_state(STATE / "tally.json")).report_line(catalog.load(cfg)))
         return

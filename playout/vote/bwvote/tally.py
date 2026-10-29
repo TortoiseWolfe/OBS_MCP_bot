@@ -46,14 +46,31 @@ class Tally:
     def top_net(self, songs, n=3):
         return self.ranked(songs, lambda r: (r[1] - r[2], r[1]), n)
 
+    def net(self, song_id):
+        up, down = self.counts(song_id)
+        return up - down
+
+    def ranked_all(self, songs):
+        """Every take, for the control page: net votes high to low, then fewest down votes, then title A to Z."""
+        rows = [(s, *self.counts(s["id"])) for s in songs]
+        rows.sort(key=lambda r: (-(r[1] - r[2]), r[2], r[0]["title"].lower()))
+        return rows
+
+    def bottom(self, songs):
+        """Takes voted to the bottom: enough voters for the votes to count and the weight at its floor (weights.py)."""
+        from . import weights
+        return [s for s in songs if sum(self.counts(s["id"])) >= weights.MIN_VOTES
+                and weights.weight(*self.counts(s["id"])) <= weights.MIN_WEIGHT]
+
     def viewers(self):
         return len({h for v in self.votes.values() for h in v})
 
     def state(self):
         return {"salt": self.salt, "started": self.started, "votes": self.votes}
 
-    def export(self, songs):
-        """The aggregate the hub keeps beside the by-ear votes.json; no viewer data."""
+    def export(self, songs, purged=None):
+        """The aggregate the hub keeps beside the by-ear votes.json; no viewer data. `purged` ({id: record}, purge.py) keeps
+        moved-aside takes in the report, marked "purged": true."""
         out = {"source": "twitch", "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
                "viewers": self.viewers(), "songs": {}}
         for s in songs:
@@ -61,6 +78,13 @@ class Tally:
             out["songs"][s["id"]] = {"title": s["title"], "up": up, "down": down}
             if s.get("song"):  # a factory take also counts toward its song, which is what the factory steers by
                 tot = out["songs"].setdefault(s["song"], {"title": s["song"], "up": 0, "down": 0})
+                tot["up"] += up
+                tot["down"] += down
+        for sid, rec in (purged or {}).items():
+            up, down = self.counts(sid)
+            out["songs"][sid] = {"title": rec.get("title", sid), "up": up, "down": down, "purged": True}
+            if rec.get("song"):  # its votes still count toward its song
+                tot = out["songs"].setdefault(rec["song"], {"title": rec["song"], "up": 0, "down": 0})
                 tot["up"] += up
                 tot["down"] += down
         return out
