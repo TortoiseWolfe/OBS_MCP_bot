@@ -3,7 +3,7 @@
 The factory (beatboard/tools/factory/take_factory.py) keeps a JSON list at <band-wagon audio>/takes/catalog.json, one entry per
 finished take: {"song": "story-1", "take": "story-1-t3", "take_n": 3, "style": "...", "seed": 12345, "bpm": 76, "seconds": 215.0,
 "path": "/abs/path/story-1-t3.mp3", "kind": "story", ...}. Its songs.json beside it names each song ({"id", "title", ...}).
-A take is titled "<song title>, take 3". Optional on an entry: "hold": true keeps it off the air.
+A take is titled "<song title>, take 3", or by its own "title" when the entry has one. Optional on an entry: "hold": true keeps it off the air.
 Ids listed in cfg["purged_file"] (bwvote/purge.py) are left out too.
 The file is read again at every song change, so a take that lands is on the air within a song or two, no restart.
 A take is offered only once its file has stopped changing (a copy still in progress would play as a cut-off song).
@@ -39,6 +39,8 @@ def _titles(catalog_path):
 
 
 def _title(entry, titles):
+    if entry.get("title"):  # a master with its own name (the album tracks) is titled as named
+        return entry["title"]
     song = entry.get("song") or ""
     name = titles.get(song) or song.replace("-", " ").title() or "Take"
     suffix = entry["take"][len(song) + 1:] if entry["take"].startswith(song + "-") else entry["take"]
