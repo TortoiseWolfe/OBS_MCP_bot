@@ -8,47 +8,188 @@
   "catalog": "~/repos/hub/internship/showcase/audio/band-wagon/takes/catalog.json",
   "font": "~/repos/hub/internship/showcase/art/band-wagon/fonts/LilitaOne-Regular.ttf",
   "export_to": "~/repos/hub/internship/showcase/audio/band-wagon/votes-twitch.json",
-  "opener": {"file": "bw-jam-2.mp3", "label": "Opening the show Thursday"},
+  "opener": {
+    "file": "bw-jam-2.mp3",
+    "label": "Opening the show Thursday"
+  },
   "announcements": [
-    {"from": "2026-10-29T17:00:00-04:00", "until": "2026-10-29T17:30:00-04:00", "text": "6 PM show: twitch.tv/scripthammer"}
+    {
+      "from": "2026-10-29T17:00:00-04:00",
+      "until": "2026-10-29T17:30:00-04:00",
+      "text": "6 PM show: twitch.tv/scripthammer"
+    }
   ],
   "songs": [
-    {"file": "bw-alt-1.mp3",  "title": "The Band Wagon (after hours)", "group": "pick"},
-    {"file": "bw-n04.mp3",    "title": "Who Winds the Music Box?", "group": "spooky"},
-    {"file": "bw-duet-1.mp3", "title": "Should the Machines Take Over? Take 1", "group": "pick"},
-    {"file": "bw-n05.mp3",    "title": "The Night Watch", "group": "spooky"},
-    {"file": "bw-duet-2.mp3", "title": "Should the Machines Take Over? Take 2", "group": "pick"},
-    {"file": "bw-n06.mp3",    "title": "Count Me In", "group": "spooky"},
-    {"file": "bw-jam-1.mp3",  "title": "The Band Wagon (after hours): long jam A", "group": "jam"},
-    {"file": "bw-n01.mp3",    "title": "Seven Ghosts in the Wiring", "group": "fans"},
-    {"file": "bw-n02.mp3",    "title": "Lantern Parade", "group": "fans"},
-    {"file": "bw-jam-2.mp3",  "title": "Should the Machines Take Over? Take 1: long jam A", "group": "jam"},
-    {"file": "bw-n03.mp3",    "title": "Soundcheck at Midnight", "group": "other"},
-    {"file": "bw-n07.mp3",    "title": "Steam Hiss Shuffle", "group": "other"},
-    {"file": "bw-jam-3.mp3",  "title": "Should the Machines Take Over? Take 2: long jam A", "group": "jam"},
-    {"file": "bw-n08.mp3",    "title": "Wrench in the Works", "group": "other"},
-    {"file": "bw-n09.mp3",    "title": "Boiler Room Boogie", "group": "other"},
-    {"file": "bw-jam-1b.mp3", "title": "The Band Wagon (after hours): long jam B", "group": "jam"},
-    {"file": "bw-n10.mp3",    "title": "Static Snow", "group": "other"},
-    {"file": "bw-n11.mp3",    "title": "Ghost in the Music Box", "group": "fans"},
-    {"file": "bw-jam-2b.mp3", "title": "Should the Machines Take Over? Take 1: long jam B", "group": "jam"},
-    {"file": "bw-psy-1.mp3", "title": "The Doctor Listens", "group": "psy"},
-    {"file": "bw-psy-1b.mp3", "title": "The Doctor Listens, take 2", "group": "psy"},
-    {"file": "bw-psy-2.mp3", "title": "Rule Two Goes Sideways", "group": "psy"},
-    {"file": "bw-psy-2b.mp3", "title": "Rule Two Goes Sideways, take 2", "group": "psy"},
-    {"file": "bw-psy-3.mp3", "title": "Three Rules in Step", "group": "psy"},
-    {"file": "bw-psy-3b.mp3", "title": "Three Rules in Step, take 2", "group": "psy"},
-    {"file": "bw-n12.mp3",    "title": "Signal Lost, Signal Found", "group": "other"},
-    {"file": "bw-fusion-1.mp3",  "title": "Breakbeat Bots", "group": "fusion"},
-    {"file": "bw-fusion-1b.mp3", "title": "Breakbeat Bots, take 2", "group": "fusion"},
-    {"file": "bw-fusion-2.mp3",  "title": "Warehouse Wagon", "group": "fusion"},
-    {"file": "bw-fusion-2b.mp3", "title": "Warehouse Wagon, take 2", "group": "fusion"},
-    {"file": "bw-jam-3b.mp3", "title": "Should the Machines Take Over? Take 2: long jam B", "group": "jam"},
-    {"file": "bw-story-1.mp3", "title": "Breath on Glass (overture)", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-1b.mp3", "title": "Breath on Glass (overture), take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-7.mp3", "title": "The Perfect Show", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-7b.mp3", "title": "The Perfect Show, take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-13.mp3", "title": "Breath on Glass (reprise)", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}},
-    {"file": "bw-story-13b.mp3", "title": "Breath on Glass (reprise), take 2", "group": "story", "feature": {"weight": 2, "until": "2026-10-29T12:00:00-04:00"}}
+    {
+      "file": "bw-alt-1.mp3",
+      "title": "The Band Wagon (after hours)",
+      "group": "pick"
+    },
+    {
+      "file": "bw-duet-1.mp3",
+      "title": "Should the Machines Take Over? Take 1",
+      "group": "pick"
+    },
+    {
+      "file": "bw-n05.mp3",
+      "title": "The Night Watch",
+      "group": "spooky"
+    },
+    {
+      "file": "bw-n06.mp3",
+      "title": "Count Me In",
+      "group": "spooky"
+    },
+    {
+      "file": "bw-duet-2.mp3",
+      "title": "Should the Machines Take Over? Take 2",
+      "group": "pick"
+    },
+    {
+      "file": "bw-jam-1.mp3",
+      "title": "The Band Wagon (after hours): long jam A",
+      "group": "jam"
+    },
+    {
+      "file": "bw-n01.mp3",
+      "title": "Seven Ghosts in the Wiring",
+      "group": "fans"
+    },
+    {
+      "file": "bw-jam-2.mp3",
+      "title": "Should the Machines Take Over? Take 1: long jam A",
+      "group": "jam"
+    },
+    {
+      "file": "bw-n03.mp3",
+      "title": "Soundcheck at Midnight",
+      "group": "other"
+    },
+    {
+      "file": "bw-n07.mp3",
+      "title": "Steam Hiss Shuffle",
+      "group": "other"
+    },
+    {
+      "file": "bw-jam-3.mp3",
+      "title": "Should the Machines Take Over? Take 2: long jam A",
+      "group": "jam"
+    },
+    {
+      "file": "bw-n08.mp3",
+      "title": "Wrench in the Works",
+      "group": "other"
+    },
+    {
+      "file": "bw-n09.mp3",
+      "title": "Boiler Room Boogie",
+      "group": "other"
+    },
+    {
+      "file": "bw-jam-1b.mp3",
+      "title": "The Band Wagon (after hours): long jam B",
+      "group": "jam"
+    },
+    {
+      "file": "bw-n10.mp3",
+      "title": "Static Snow",
+      "group": "other"
+    },
+    {
+      "file": "bw-n11.mp3",
+      "title": "Ghost in the Music Box",
+      "group": "fans"
+    },
+    {
+      "file": "bw-jam-2b.mp3",
+      "title": "Should the Machines Take Over? Take 1: long jam B",
+      "group": "jam"
+    },
+    {
+      "file": "bw-psy-1.mp3",
+      "title": "The Doctor Listens",
+      "group": "psy"
+    },
+    {
+      "file": "bw-psy-1b.mp3",
+      "title": "The Doctor Listens, take 2",
+      "group": "psy"
+    },
+    {
+      "file": "bw-psy-2.mp3",
+      "title": "Rule Two Goes Sideways",
+      "group": "psy"
+    },
+    {
+      "file": "bw-psy-2b.mp3",
+      "title": "Rule Two Goes Sideways, take 2",
+      "group": "psy"
+    },
+    {
+      "file": "bw-n12.mp3",
+      "title": "Signal Lost, Signal Found",
+      "group": "other"
+    },
+    {
+      "file": "bw-fusion-1.mp3",
+      "title": "Breakbeat Bots",
+      "group": "fusion"
+    },
+    {
+      "file": "bw-fusion-1b.mp3",
+      "title": "Breakbeat Bots, take 2",
+      "group": "fusion"
+    },
+    {
+      "file": "bw-fusion-2.mp3",
+      "title": "Warehouse Wagon",
+      "group": "fusion"
+    },
+    {
+      "file": "bw-fusion-2b.mp3",
+      "title": "Warehouse Wagon, take 2",
+      "group": "fusion"
+    },
+    {
+      "file": "bw-jam-3b.mp3",
+      "title": "Should the Machines Take Over? Take 2: long jam B",
+      "group": "jam"
+    },
+    {
+      "file": "bw-story-7.mp3",
+      "title": "The Perfect Show",
+      "group": "story",
+      "feature": {
+        "weight": 2,
+        "until": "2026-10-29T12:00:00-04:00"
+      }
+    },
+    {
+      "file": "bw-story-7b.mp3",
+      "title": "The Perfect Show, take 2",
+      "group": "story",
+      "feature": {
+        "weight": 2,
+        "until": "2026-10-29T12:00:00-04:00"
+      }
+    },
+    {
+      "file": "bw-story-13.mp3",
+      "title": "Breath on Glass (reprise)",
+      "group": "story",
+      "feature": {
+        "weight": 2,
+        "until": "2026-10-29T12:00:00-04:00"
+      }
+    },
+    {
+      "file": "bw-story-13b.mp3",
+      "title": "Breath on Glass (reprise), take 2",
+      "group": "story",
+      "feature": {
+        "weight": 2,
+        "until": "2026-10-29T12:00:00-04:00"
+      }
+    }
   ]
 }
