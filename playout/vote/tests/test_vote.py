@@ -359,6 +359,28 @@ def test_the_pipe_carries_song_after_song_gaplessly_and_skips_one_that_will_not_
     assert f.started.is_set() and tl.upcoming is not None
 
 
+def test_a_skip_cuts_the_song_and_the_freshly_chosen_next_one_starts_at_once(tmp_path):
+    import io
+    from bwvote import pipe
+    tl, sink, logs = pipe.LiveTimeline(), io.BytesIO(), []
+    songs = [{"id": f"s{i}", "title": f"S{i}", "path": tmp_path / f"s{i}.pcm"} for i in range(3)]
+    for s in songs:
+        s["path"].write_bytes(b"\x01\x00" * 48000 * 2 * 4)  # 4 s of raw sound
+    calls = {"n": 0, "skip": 0}
+    def choose():
+        calls["n"] += 1
+        if calls["n"] >= 4:
+            f.stop.set()
+        return songs[1] if calls["n"] == 1 else songs[2] if calls["n"] == 2 else songs[0]
+    def skip():
+        calls["skip"] += 1
+        return calls["skip"] == 15  # 1.5 s into the first song, once
+    f = pipe.Feeder(sink, tl, choose, first=songs[0], decoder=lambda p: ["cat", str(p)], log=logs.append, skip=skip)
+    f.run()
+    assert [s["id"] for s in tl.songs[:2]] == ["s0", "s2"]  # s1 was drawn as next, then the skip drew s2 instead
+    assert 1.4 < tl.starts[1] < 1.6 and any("skip: cutting s0" in m for m in logs)
+
+
 def test_a_factory_take_s_votes_also_count_toward_its_song_for_the_factory_to_steer_by(tmp_path):
     from bwvote import catalog
     cfg = _cfg(tmp_path, [_take(tmp_path, "story-1", 1), _take(tmp_path, "story-1", 2)])

@@ -134,8 +134,17 @@ class Stream:
             return queued
         return self.picker.pick(songs, self.tally)
 
+    def skip_requested(self):
+        """touch state/skip to cut the song on the air and start the next now (the file is used up)."""
+        try:
+            (STATE / "skip").unlink()
+            return True
+        except OSError:
+            return False
+
     def launch(self):
         STATE.mkdir(exist_ok=True)
+        (STATE / "skip").unlink(missing_ok=True)  # a stale request must not cut the first song
         self.all_songs = catalog.load(self.cfg)
         first = None
         if not self.opened:  # the opener plays once, at the first start only (a restart goes straight to the draw)
@@ -159,7 +168,7 @@ class Stream:
         self.started_at = time.time()
         if self.feeder:
             self.feeder.stop.set()
-        self.feeder = pipe.Feeder(self.proc.stdin, self.timeline, self.choose, first, log=log)
+        self.feeder = pipe.Feeder(self.proc.stdin, self.timeline, self.choose, first, log=log, skip=self.skip_requested)
         self.feeder.start()
         if not self.feeder.started.wait(30):
             log("the first take did not start within 30 s")
