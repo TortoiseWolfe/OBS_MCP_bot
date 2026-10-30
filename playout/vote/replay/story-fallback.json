@@ -6,7 +6,7 @@
   "portraits": "~/band-wagon-tower/art/headline-rotation",
   "video_cards": "~/band-wagon-tower/art/cards/video-632",
   "join_seconds": 8,
-  "picture_fade": 2.5,
+  "picture_fade": 4.0,
   "opening": {
     "lines": [
       "THE BAND WAGON",

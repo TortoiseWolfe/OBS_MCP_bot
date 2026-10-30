@@ -89,35 +89,67 @@ def video_cards(cards, vdir):
     return (out, True) if out else (cards, False)
 
 
-READ_WPS = 3.0  # a lyric page stays up at least words / 3 seconds (180 words a minute, the BBC's fastest subtitle speed)
+# Reading rule: every screen with words stays fully clear long enough for a young reader (strictest published rate found: Australian children's captioning, 120 words a minute),
+# and no screen, text or picture, is clear for less than MIN_CLEAR seconds. "Clear" = the screen's own share of the picture is at least CLEAR_W.
+READ_WPS = 2.0  # words a second (120 a minute)
+ORIENT = 2.0  # seconds to take in a new screen before reading starts
+MIN_CLEAR = 5.0  # shortest a screen may be clear, words or not
+MIN_FADE = 2.5  # shortest dissolve into or out of a screen with words, counted from its first visible frame to the moment it is clear (a 4 s crossfade measures about 3 s)
+CLEAR_W = 0.9
+U = 0.804  # smooth(U) = 0.9: how far into a dissolve a screen reaches CLEAR_W
+FILM_FADE = 4.0  # the last picture fades to black over this
+CARD_WORDS, CLIP_WORDS, PAGE_WORDS = 8, 20, 15  # words a track card, a clip caption (the longest burned in) and a comic page carry
+DROP_ORDER = ["member", "page", "clip", "card", "lyrics"]  # a song too short for every screen sheds these first (the first lyric page and the slides stay)
 
 
-def reading_floor(items, seconds, words):
-    """Raise the weight of any lyric page that would be up shorter than its words need, so it gets its reading time; returns the pages that still cannot get it."""
-    short = []
-    for _ in range(40):
-        tw = sum(x["w"] for x in items)
-        grown = False
-        for x in items:
-            if x["kind"] != "lyrics":
-                continue
-            need = words.get(x["path"].name, 0) / READ_WPS
-            if seconds * x["w"] / tw < need:
-                rest = tw - x["w"]
-                share = min(need / seconds, 0.9)
-                x["w"] = max(x["w"], share * rest / (1 - share) * 1.02)
-                grown = True
-        if not grown:
-            break
-    tw = sum(x["w"] for x in items)
-    for x in items:
-        if x["kind"] == "lyrics" and seconds * x["w"] / tw < words.get(x["path"].name, 0) / READ_WPS - 0.5:
-            short.append(x["path"].name)
-    return short
+def wordcount(text):
+    return len(re.findall(r"[\w'’-]+", text or ""))
 
 
-def pick_items(story, cfg, song, seconds):
-    """The song's pictures in showing order, each {kind, path, w}; the song fills `seconds` with no picture up longer than UNIT_MAX per weight."""
+def clear_need(words):
+    return max(MIN_CLEAR, ORIENT + words / READ_WPS)
+
+
+def item_words(x, words):
+    if x["kind"] == "slide":
+        return wordcount(" ".join(str(x["slide"].get(k) or "") for k in ("head", "sub", "log")))
+    if x["kind"] == "lyrics":
+        return words.get(Path(str(x["path"])).name, 0)
+    return {"card": CARD_WORDS, "clip": CLIP_WORDS, "page": PAGE_WORDS}.get(x["kind"], 0)
+
+
+def hold_needs(items, first_song, last_song, J, F):
+    """Seconds each item must hold (boundary to boundary) so that it is clear for its need once the dissolves that eat into it are paid for."""
+    n, out = len(items), []
+    for i, x in enumerate(items):
+        left = (0.0 if first_song else U * J) if i == 0 else (U - 0.5) * F
+        right = (U * FILM_FADE if last_song else U * J) if i == n - 1 else (U - 0.5) * F
+        need = clear_need(x["words"])
+        if x["kind"] == "slide":
+            need = max(need, float(x["slide"].get("seconds") or 0) - left - right)
+        out.append(need + left + right)
+    return out
+
+
+def fit_items(items, D, first_song, last_song, J, F):
+    """Drop the lowest-priority screens until every remaining one can hold its need inside D; returns (items, needs, dropped)."""
+    dropped = []
+    while True:
+        needs = hold_needs(items, first_song, last_song, J, F)
+        if sum(needs) <= D:
+            return items, needs, dropped
+        for kind in DROP_ORDER:
+            idx = [i for i, x in enumerate(items) if x["kind"] == kind and not (kind == "lyrics" and x is next((y for y in items if y["kind"] == "lyrics"), None))]
+            if idx:
+                dropped.append(items.pop(idx[-1]))
+                break
+        else:
+            return items, needs, dropped
+
+
+def pick_items(story, cfg, song, seconds, words=None):
+    """The song's screens in showing order, each {kind, path, w, words}; art may stay up no longer than UNIT_MAX per weight unit. Text screens are not trimmed to fit: see fit_items."""
+    words = words or {}
     held = bool(song.get("held"))
     cards, video = video_cards([Path(p) for p in slideshow.track_cards(cfg, {"id": song["id"]})], story.get("video_cards"))
     lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"], "video": video} for p in cards if "lyrics" in p.name]
@@ -145,38 +177,79 @@ def pick_items(story, cfg, song, seconds):
                 items.append(mem.pop(0))
         pool = mem
         items += clips
-    need = seconds / UNIT_MAX
-    k = 0
-    while sum(x["w"] for x in items) < need and pool:
-        items.append(pool.pop(0))
-    allm = member_pool(story, song.get("singers", []))
-    while sum(x["w"] for x in items) < need and allm:  # a whole pool shown once and still short: go round again
-        items.append({"kind": "member", "path": allm[k % len(allm)], "w": WEIGHT["member"]})
-        k += 1
-    return items
+    cover = next((x["path"] for x in lyrics if x.get("video")), None)
+    for x in items:
+        x["words"] = item_words(x, words)
+    return items, pool, cover
+
+
+def slide_item(key, cover, head, sub, log, seconds=0):
+    s = {"head": head, "sub": sub, "log": log, "seconds": seconds}
+    x = {"kind": "slide", "key": key, "path": cover or Path("none"), "cover": bool(cover), "w": 0.0, "slide": s, "video": True}
+    x["words"] = item_words(x, {})
+    return x
 
 
 def build_plan(story, cfg, total):
-    J = float(story["join_seconds"])
-    songs = []
+    J, F = float(story["join_seconds"]), float(story["picture_fade"])
     raw = story["songs"]
+    vd = story.get("video_cards")
+    wf = ex(vd) / "words.json" if vd else None
+    words = json.loads(wf.read_text()) if wf and wf.is_file() else {}
+    songs = []
     for i, s in enumerate(raw):
         end = raw[i + 1]["start"] + J if i + 1 < len(raw) else total
         D = end - s["start"]
-        items = pick_items(story, cfg, s, D)
-        vd = story.get("video_cards")
-        wf = ex(vd) / "words.json" if vd else None
-        short = reading_floor(items, D, json.loads(wf.read_text()) if wf and wf.is_file() else {})
-        tw = sum(x["w"] for x in items)
+        first, last = i == 0, i + 1 == len(raw)
+        items, pool, cover = pick_items(story, cfg, s, D, words)
+        head, tail = [], []
+        if first:
+            o = story["opening"]
+            head.append(slide_item("open", cover, o["lines"][0], o["lines"][1], o["lines"][2], o["seconds"]))
+        c = s.get("chapter")
+        if c:
+            head.append(slide_item(f"ch{s['n']}", cover, c["head"], c["sub"], c["log"]))
+        if last:
+            e = story["ending"]
+            tail.append(slide_item("end", cover, e["lines"][0], "", e["lines"][1], e["seconds"]))
+        allm = member_pool(story, s.get("singers", []))
+        k = 0
+        # drop screens until every kept one fits, keeping the slides and the first lyric page
+        screens = head + items + tail
+        screens, needs, dropped = fit_items(screens, D, first, last, J, F)
+        while True:  # art may not sit longer than UNIT_MAX per weight: add portraits while there is room for them
+            needs = hold_needs(screens, first, last, J, F)
+            spare = D - sum(needs)
+            tw = sum(x["w"] for x in screens) or 1.0
+            over = any(x["kind"] in ("card", "member", "page") and needs[j] + spare * x["w"] / tw > UNIT_MAX * x["w"] for j, x in enumerate(screens))
+            if not over or not allm or k > 60:
+                break
+            m = pool.pop(0) if pool else {"kind": "member", "path": allm[k % len(allm)], "w": WEIGHT["member"]}
+            k += 1
+            m["words"] = 0
+            at = len(screens) - (1 if tail else 0)
+            screens.insert(at, m)
+            if sum(hold_needs(screens, first, last, J, F)) > D:
+                screens.pop(at)
+                break
+        needs = hold_needs(screens, first, last, J, F)
+        spare = max(0.0, D - sum(needs))
+        tw = sum(x["w"] for x in screens) or 1.0
         acc, bounds = 0.0, []
-        for x in items:
-            acc += D * x["w"] / tw
+        for x, nd in zip(screens, needs):
+            x["need_hold"] = nd
+            x["hold"] = nd + spare * x["w"] / tw
+            acc += x["hold"]
             bounds.append(acc)
-        for x in items:  # seconds the picture is up, fades included: a clip plays through it (looping if it can)
-            x["span"] = D * x["w"] / tw + float(story["picture_fade"])
-        songs.append({**s, "end": end, "items": items, "bounds": bounds, "pages_too_short": short})
-    return {"total": total, "join": J, "fade": float(story["picture_fade"]), "songs": songs,
-            "opening": story["opening"], "ending": story["ending"]}
+        if bounds and abs(bounds[-1] - D) > 1e-6:  # a song that still cannot fit its needs is stretched; the checks flag it
+            scale = D / bounds[-1]
+            bounds = [b * scale for b in bounds]
+        prev = 0.0
+        for x, b in zip(screens, bounds):  # seconds the picture is up, fades included: a clip plays through it (looping if it can)
+            x["span"] = (b - prev) + F
+            prev = b
+        songs.append({**s, "end": end, "items": screens, "bounds": bounds, "dropped": [str(x["path"]) for x in dropped]})
+    return {"total": total, "join": J, "fade": F, "songs": songs, "opening": story["opening"], "ending": story["ending"]}
 
 
 def plan_json(plan):
@@ -258,6 +331,8 @@ class Renderer:
     def item_frame(self, item, p, flip):
         if item["kind"] == "clip":
             return self.clip_frame(item, p)
+        if item["kind"] == "slide":
+            return self.slide(item)
         img = self.prepared(item)
         if item["kind"] == "page":
             y = (img.height - PH) * smooth(p)
@@ -274,21 +349,31 @@ class Renderer:
         return img.resize((W, PH), Image.BILINEAR, box=(x0, y0, x0 + bw, y0 + bh))
 
     # -- one song's picture at song time u
-    def pic(self, song, u):
-        b, n, F = song["bounds"], len(song["bounds"]), self.plan["fade"]
+    @staticmethod
+    def weights(song, u, F):
+        """[(item index, share of the picture)] at song time u: one screen, or two while they dissolve (a smooth F-second crossfade centred on the boundary)."""
+        b, n = song["bounds"], len(song["bounds"])
         i = min(bisect_right(b, u), n - 1)
+        if i > 0 and u < b[i - 1] + F / 2:
+            a = smooth((u - (b[i - 1] - F / 2)) / F)
+            return [(i - 1, 1 - a), (i, a)]
+        if i < n - 1 and u > b[i] - F / 2:
+            a = smooth((u - (b[i] - F / 2)) / F)
+            return [(i, 1 - a), (i + 1, a)]
+        return [(i, 1.0)]
+
+    def pic(self, song, u):
+        b, F = song["bounds"], self.plan["fade"]
 
         def fr(j):
             lo = b[j - 1] if j else 0.0
-            hi = b[j]
-            p = (u - (lo - F / 2)) / (hi - lo + F)
+            p = (u - (lo - F / 2)) / (b[j] - lo + F)
             return self.item_frame(song["items"][j], min(1.0, max(0.0, p)), j % 2 == 1)
 
-        if i > 0 and u < b[i - 1] + F / 2:
-            return Image.blend(fr(i - 1), fr(i), smooth((u - (b[i - 1] - F / 2)) / F))
-        if i < n - 1 and u > b[i] - F / 2:
-            return Image.blend(fr(i), fr(i + 1), smooth((u - (b[i] - F / 2)) / F))
-        return fr(i)
+        w = self.weights(song, u, F)
+        if len(w) == 1:
+            return fr(w[0][0])
+        return Image.blend(fr(w[0][0]), fr(w[1][0]), w[1][1])
 
     def band(self, song):
         n = song["n"]
@@ -325,16 +410,14 @@ class Renderer:
         out.paste(Image.blend(self.band(old), black, min(1.0, 2 * a)) if a < 0.5 else Image.blend(black, self.band(new), 2 * a - 1), (0, PH))
         return out
 
-    # -- overlays: full screens of their own (cover left, big words right); nothing is laid over a card's text
-    def slide(self, key, song, head, sub, log):
-        """A full picture-area screen as RGBA (opaque): the song's cover cropped from its first video lyric page, then the words."""
+    # -- slides: the opening, chapter and end screens are items of their own (cover left, big words right); nothing is laid over a card's text
+    def slide(self, item):
+        """A full picture-area screen: the song's cover cropped from its first video lyric page, then the words."""
+        key = item["key"]
         if key in self.panels:
             return self.panels[key]
-        art = None
-        for x in song["items"]:
-            if x["kind"] == "lyrics" and x.get("video"):
-                art = Image.open(x["path"]).convert("RGB").crop(LYR_ART)
-                break
+        head, sub, log = item["slide"]["head"], item["slide"]["sub"], item["slide"]["log"]
+        art = Image.open(item["path"]).convert("RGB").crop(LYR_ART) if item.get("cover") else None
         d0 = ImageDraw.Draw(Image.new("RGB", (4, 4)))
         if art:
             img = art.resize((W, W), Image.LANCZOS).crop((0, 300, W, 300 + PH)).filter(ImageFilter.GaussianBlur(26)).point(lambda v: int(v * 0.2))
@@ -373,48 +456,16 @@ class Renderer:
             if text:
                 d.text((x, y), text, font=font, fill=colour)
             y += h
-        self.panels[key] = img.convert("RGBA")
-        return self.panels[key]
-
-    def overlays(self, t):
-        """[(screen, alpha, centre_y)] showing at film time t."""
-        pl, out = self.plan, []
-        o = pl["opening"]
-        if t < o["seconds"]:
-            a = min(1.0, t / 1.0, (o["seconds"] - t) / 1.5)
-            ln = o["lines"]
-            out.append((self.slide("open", pl["songs"][0], ln[0], ln[1], ln[2]), max(0.0, a), PH // 2))
-        e = pl["ending"]
-        if t > pl["total"] - e["seconds"]:
-            a = min(1.0, (t - (pl["total"] - e["seconds"])) / 2.0)
-            out.append((self.slide("end", pl["songs"][-1], e["lines"][0], "", e["lines"][1]), a, PH // 2))
-        for s in pl["songs"]:
-            c = s.get("chapter")
-            if not c:
-                continue
-            t0 = s["start"] + c["at"] + (0 if s["n"] == 1 else pl["join"] / 2)
-            if t0 <= t < t0 + 8:
-                a = min(1.0, (t - t0) / 1.0, (t0 + 8 - t) / 1.0)
-                out.append((self.slide(f"ch{s['n']}", s, c["head"], c["sub"], c["log"]), a, PH // 2))
-        return out
+        self.panels[key] = img
+        return img
 
     def frame_at(self, t):
         pl = self.plan
         k = max(0, bisect_right(self.starts, t) - 1)
-        if k > 0 and t < self.starts[k] + pl["join"]:
-            img = self.join_frame(k, t)
-        else:
-            img = self.song_frame(k, t)
-        for panel, a, cy in self.overlays(t):
-            if a <= 0:
-                continue
-            mask = panel.getchannel("A")
-            if a < 1:
-                mask = mask.point(lambda v, a=a: int(v * a))
-            img.paste(panel.convert("RGB"), ((W - panel.width) // 2, int(cy - panel.height / 2)), mask)
+        img = self.join_frame(k, t) if k > 0 and t < self.starts[k] + pl["join"] else self.song_frame(k, t)
         left = pl["total"] - t
-        if left < 1.5:
-            img = Image.blend(img, Image.new("RGB", (W, H)), min(1.0, 1 - left / 1.5))
+        if left < FILM_FADE:
+            img = Image.blend(img, Image.new("RGB", (W, H)), 1 - smooth(left / FILM_FADE))
         return img
 
 
@@ -448,6 +499,91 @@ def render_chunk(job):
     return str(out)
 
 
+# ---------------------------------------------------------------- measurement
+
+def shares_at(plan, t):
+    """{(song index, item index): share of the picture} at film time t, as the renderer draws it (joins and the closing fade included)."""
+    songs, F, J = plan["songs"], plan["fade"], plan["join"]
+    k = max(0, bisect_right([s["start"] for s in songs], t) - 1)
+    out = {}
+    if k > 0 and t < songs[k]["start"] + J:
+        a = smooth((t - songs[k]["start"]) / J)
+        for kk, m in ((k - 1, 1 - a), (k, a)):
+            for j, w in Renderer.weights(songs[kk], t - songs[kk]["start"], F):
+                out[(kk, j)] = out.get((kk, j), 0.0) + w * m
+    else:
+        for j, w in Renderer.weights(songs[k], t - songs[k]["start"], F):
+            out[(k, j)] = w
+    left = plan["total"] - t
+    if left < FILM_FADE:
+        g = smooth(left / FILM_FADE)
+        out = {key: v * g for key, v in out.items()}
+    return out
+
+
+def measure(plan, extra=(), dt=0.1):
+    """Every screen in the film with the seconds it is clear (share >= CLEAR_W), the seconds it is on at all, its words, the dissolve into it and out of it, and what it needs.
+    `extra` holds opaque overlays an older film drew on top: {name, words, alpha(t)}; they hide what is under them."""
+    rows, idx = [], {}
+    for k, s in enumerate(plan["songs"]):
+        for j, x in enumerate(s["items"]):
+            idx[(k, j)] = len(rows)
+            words = x.get("words", 0)
+            rows.append({"song": s["n"], "title": s["title"], "kind": x["kind"], "name": x.get("key") or Path(str(x["path"])).name, "words": words,
+                         "need_clear": round(clear_need(words), 2), "clear": 0.0, "on": 0.0, "first": None, "last": None, "clear_first": None, "clear_last": None})
+    for e in extra:
+        rows.append({"song": None, "title": "", "kind": "overlay", "name": e["name"], "words": e["words"], "need_clear": round(clear_need(e["words"]), 2),
+                     "clear": 0.0, "on": 0.0, "first": None, "last": None, "clear_first": None, "clear_last": None, "alpha": e["alpha"]})
+    t = 0.0
+    while t < plan["total"]:
+        sh = shares_at(plan, t)
+        cover = max((e["alpha"](t) for e in extra), default=0.0)
+        vals = {(("i", i)): v * (1 - cover) for (k, j), v in sh.items() for i in [idx[(k, j)]]}
+        for r_i, e in zip(range(len(rows) - len(extra), len(rows)), extra):
+            vals[("i", r_i)] = e["alpha"](t)
+        for (_, i), v in vals.items():
+            r = rows[i]
+            if v > 0.005:
+                r["on"] += dt
+                r["first"] = t if r["first"] is None else r["first"]
+                r["last"] = t
+            if v >= CLEAR_W:
+                r["clear"] += dt
+                r["clear_first"] = t if r["clear_first"] is None else r["clear_first"]
+                r["clear_last"] = t
+        t += dt
+    for r in rows:
+        r.pop("alpha", None)
+        if r["first"] is None:
+            continue
+        if r["clear_first"] is None:  # on screen but never clear: reported as too short, no dissolve to measure
+            r["fade_in"] = r["fade_out"] = None
+            r["on"] = round(r["on"], 1)
+            continue
+        r["fade_in"] = None if r["first"] <= dt else round(r["clear_first"] - r["first"], 2)  # time spent dissolving in; None = the film opens on it
+        r["fade_out"] = None if r["last"] >= plan["total"] - 2 * dt else round(r["last"] - r["clear_last"], 2)
+        for key in ("clear", "on"):
+            r[key] = round(r[key], 1)
+    return rows
+
+
+def readability(rows, plan_total):
+    """The two numbers the build is judged on: screens clear for less than they need, and dissolves into or out of a screen with words shorter than MIN_FADE.
+    Both are measured from the shares the renderer draws, not from the settings."""
+    short, fades = [], []
+    for r in rows:
+        if r["first"] is None:
+            short.append({**r, "why": "never shown"})
+            continue
+        if r["clear"] + 0.15 < r["need_clear"]:
+            short.append({k: r[k] for k in ("song", "title", "kind", "name", "words", "need_clear", "clear")})
+        if r["words"]:
+            for side, key in (("in", "fade_in"), ("out", "fade_out")):
+                if r[key] is not None and r[key] < MIN_FADE:
+                    fades.append({"song": r["song"], "name": r["name"], "side": side, "seconds": r[key]})
+    return short, fades
+
+
 # ---------------------------------------------------------------- checks
 
 def ff(*args):
@@ -465,7 +601,7 @@ def run_checks(film, plan, t0, seconds, out):
     chk["audio_video_gap_ok"] = abs(vd - a) <= 0.1
     chk["run_time_ok"] = abs(v - seconds) <= 0.5
     sil = ff("-i", str(film), "-vn", "-af", "silencedetect=n=-50dB:d=2", "-f", "null", "-")
-    chk["silences"] = len(re.findall(r"silence_start", sil))
+    chk["silences"] = len([m for m in re.findall(r"silence_start: ([\d.]+)", sil) if float(m) < seconds - 6.0])  # the song's own quiet tail under the closing fade is by design
     lu = ff("-i", str(film), "-vn", "-af", "ebur128=peak=true", "-f", "null", "-")
     m = re.findall(r"I:\s+(-?[\d.]+) LUFS", lu)
     chk["loudness_lufs"] = float(m[-1]) if m else None
@@ -473,18 +609,18 @@ def run_checks(film, plan, t0, seconds, out):
     chk["black_runs_over_1s"] = len(re.findall(r"black_start", bd))
     fd = ff("-i", str(film), "-an", "-vf", "freezedetect=n=-60dB:d=8", "-f", "null", "-")
     chk["frozen_runs_over_8s"] = len(re.findall(r"freeze_start", fd))
-    # a still picture is allowed only where it is by design: a lyric page, or the end screen
-    allowed = [(plan["total"] - plan["ending"]["seconds"] - 1, plan["total"] + 1)]
+    # a still picture is allowed only where it is by design: a lyric page, a slide (the opening, a chapter, the end) or the held last frame of a clip that does not loop
+    allowed = []
     for s in plan["songs"]:
         lo = 0.0
         for x, hi in zip(s["items"], s["bounds"]):
-            if x["kind"] == "lyrics":
+            if x["kind"] in ("lyrics", "slide") or (x["kind"] == "clip" and not x.get("loop")):
                 allowed.append((s["start"] + lo - plan["fade"], s["start"] + hi + plan["fade"]))
             lo = hi
     runs = list(zip(map(float, re.findall(r"freeze_start: ([\d.]+)", fd)), map(float, re.findall(r"freeze_end: ([\d.]+)", fd))))
     if len(runs) < len(re.findall(r"freeze_start", fd)):  # the last run has no end line: it lasts to the end
         runs.append((float(re.findall(r"freeze_start: ([\d.]+)", fd)[-1]), seconds))
-    chk["frozen_outside_lyric_pages"] = [[a + t0, b + t0] for a, b in runs if not any(lo - 0.5 <= a + t0 and b + t0 <= hi + 0.5 for lo, hi in allowed)]
+    chk["frozen_outside_still_screens"] = [[a + t0, b + t0] for a, b in runs if not any(lo - 0.5 <= a + t0 and b + t0 <= hi + 0.5 for lo, hi in allowed)]
     # per song loudness, for songs fully inside the film
     per = []
     for s in plan["songs"]:
@@ -502,9 +638,10 @@ def run_checks(film, plan, t0, seconds, out):
         if s["n"] > 1:
             for tag, dt in (("a-before", -1.0), ("b-mid", plan["join"] / 2), ("c-after", plan["join"] + 1.0)):
                 marks.append((f"join-{s['n']:02d}-{tag}", s["start"] + dt))
-        c = s.get("chapter")
-        if c:
-            marks.append((f"chapter-{s['n']:02d}", s["start"] + c["at"] + (0 if s["n"] == 1 else plan["join"] / 2) + 3))
+    rows = measure(plan)
+    for r in rows:  # the middle of each slide's clear window
+        if r["kind"] == "slide" and r["clear_first"] is not None:
+            marks.append((f"slide-{r['name']}", (r["clear_first"] + r["clear_last"]) / 2))
     marks += [("open-1", 1.0), ("open-5", 5.0), ("end-late", plan["total"] - 8)]
     fdir = Path(out) / "frames"
     fdir.mkdir(parents=True, exist_ok=True)
@@ -523,7 +660,54 @@ def run_checks(film, plan, t0, seconds, out):
             bad += [str(x["path"]) for x in s["items"] if x["kind"] in ("card", "page")]
     chk["held_pictures_used"] = bad
     chk["square_cards_used"] = [str(x["path"]) for s in plan["songs"] for x in s["items"] if x["kind"] in ("card", "lyrics") and not x.get("video")]
-    chk["lyric_pages_too_short"] = [n for s in plan["songs"] for n in s.get("pages_too_short", [])]  # pages that could not get words / 3 seconds
+    short, fades = readability(rows, plan["total"])
+    chk["reading_rule"] = {"words_per_second": READ_WPS, "orient_seconds": ORIENT, "min_clear_seconds": MIN_CLEAR, "min_dissolve_seconds": MIN_FADE, "clear_share": CLEAR_W,
+                           "picture_crossfade_seconds": plan["fade"], "song_join_seconds": plan["join"]}
+    chk["screens"] = len(rows)
+    chk["screens_too_short"] = short  # every screen: slides, cards, lyric pages, clips, comic pages, portraits
+    chk["transitions_too_short"] = fades
+    chk["screens_dropped_to_fit"] = [[s["n"], Path(d).name] for s in plan["songs"] for d in s.get("dropped", [])]
+    (Path(out) / "screens.json").write_text(json.dumps(rows, indent=1))
+    first = [r for r in rows if r["first"] is not None and r["first"] < 15]
+    chk["screens_in_first_15s"] = [[r["name"], r["clear"]] for r in sorted(first, key=lambda r: r["first"])]
+    chk.update(still_windows(film, rows, t0, seconds))
+    chk["readable"] = not (short or fades or chk["unsteady_clear_windows"] or not chk["opens_on_one_clean_screen"])
+    return chk
+
+
+def gray_frames(film, rel0, n):
+    """n tiny gray frames, 2 a second, from rel0 seconds into the film."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{rel0:.2f}", "-i", str(film), "-an", "-vf", "fps=2,scale=64:36,format=gray", "-frames:v", str(n), "-f", "rawvideo", "-"],
+                         capture_output=True).stdout
+    return [raw[i:i + 2304] for i in range(0, len(raw) - 2303, 2304)]
+
+
+def diff(a, b):
+    return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
+
+
+TAIL = 1.6  # seconds trimmed off each end of a clear window: the last tenth of a dissolve (an 8 s join takes 1.6 s over it) still moves the picture
+STEADY = 1.5  # mean grey-level change per half second inside a still screen's clear window; a dissolve moves 5 or more
+
+
+def still_windows(film, rows, t0, seconds):
+    """Measure the rendered film by frame difference: a slide or a lyric page must not change inside its clear window, and the film must open on one steady screen."""
+    frames = gray_frames(film, 0, int(seconds * 2))
+    at = lambda t: frames[min(len(frames) - 1, max(0, round((t - t0) * 2)))]
+    bad = []
+    for r in rows:
+        if r["kind"] not in ("slide", "lyrics") or r["clear_first"] is None or r["clear"] < 1:
+            continue
+        lo, hi = r["clear_first"] + TAIL, r["clear_last"] - TAIL
+        if hi - lo < 1:
+            continue
+        if lo < t0 or hi > t0 + seconds - 1:
+            continue
+        worst = max((diff(at(lo + i * 0.5), at(lo + i * 0.5 + 0.5)) for i in range(int((hi - lo) * 2) - 1)), default=0.0)
+        if worst > STEADY:
+            bad.append({"name": r["name"], "song": r["song"], "worst_change": round(worst, 2)})
+    opening = max((diff(at(t0 + i * 0.5), at(t0 + i * 0.5 + 0.5)) for i in range(8)), default=0.0) if t0 == 0 else 0.0
+    return {"unsteady_clear_windows": bad, "opening_first_4s_worst_change": round(opening, 2), "opens_on_one_clean_screen": opening <= STEADY}
     return chk
 
 
@@ -531,7 +715,7 @@ def run_checks(film, plan, t0, seconds, out):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=["plan", "render"])
+    ap.add_argument("cmd", choices=["plan", "measure", "render", "check"])
     ap.add_argument("--story", default=str(HERE / "replay" / "story.json"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--start", type=float, default=0.0)
@@ -550,8 +734,19 @@ def main(argv=None):
     (out / "plan.json").write_text(plan_json(plan))
     if args.cmd == "plan":
         return 0
+    if args.cmd == "measure":  # the reading checks on the plan alone, nothing rendered
+        rows = measure(plan)
+        short, fades = readability(rows, total)
+        (out / "screens.json").write_text(json.dumps(rows, indent=1))
+        print(json.dumps({"screens": len(rows), "screens_too_short": short, "transitions_too_short": fades}, indent=1))
+        return 0 if not (short or fades) else 1
     seconds = args.seconds or (total - args.start)
     seconds = min(seconds, total - args.start)
+    if args.cmd == "check":  # the checks again on a film already rendered in out/
+        chk = run_checks(out / "film.mp4", plan, args.start, seconds, out)
+        (out / "checks.json").write_text(json.dumps(chk, indent=1))
+        print(json.dumps(chk, indent=1))
+        return 0 if chk["readable"] else 1
     jobs, t = [], args.start
     while t < args.start + seconds - 1e-6:
         n = min(CHUNK, args.start + seconds - t)
@@ -568,7 +763,7 @@ def main(argv=None):
     chk = run_checks(film, plan, args.start, seconds, out)
     (out / "checks.json").write_text(json.dumps(chk, indent=1))
     print(json.dumps(chk, indent=1))
-    return 0
+    return 0 if chk["readable"] else 1  # a film with a screen too short to read, or a dissolve too brief, fails the build
 
 
 if __name__ == "__main__":

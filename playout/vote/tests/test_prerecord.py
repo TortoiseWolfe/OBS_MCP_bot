@@ -40,7 +40,7 @@ def make_story(tmp_path):
     }))
     cfg = {"track_cards": str(art / "track-cards.json"), "font": FONT}
     story = {
-        "join_seconds": 8, "picture_fade": 2.5,
+        "join_seconds": 8, "picture_fade": 4.0,
         "portraits": str(port), "pages": str(tmp_path / "pages.json"), "pages_dir": str(pages),
         "opening": {"lines": ["THE BAND WAGON", "Replay", "A line"], "seconds": 10},
         "ending": {"lines": ["Thanks", "scripthammer.com"], "seconds": 20},
@@ -87,20 +87,54 @@ def test_no_picture_stays_up_past_the_limit(tmp_path):
     two = plan["songs"][1]
     lo = 0.0
     for x, hi in zip(two["items"], two["bounds"]):
-        assert (hi - lo) <= pr.UNIT_MAX * x["w"] + 1e-6
+        if x["kind"] != "slide":  # a slide is text, not a picture, and is held for its reading time
+            assert (hi - lo) <= pr.UNIT_MAX * x["w"] + 1e-6
         lo = hi
 
 
-def test_overlay_timing(tmp_path):
+def test_opening_chapter_and_end_are_screens_in_the_rotation(tmp_path):
     story, cfg = make_story(tmp_path)
     plan = pr.build_plan(story, cfg, 200.0)
-    r = pr.Renderer(plan, FONT)
-    assert r.overlays(0.0)[0][1] == 0.0  # the opening card fades in from nothing
-    assert r.overlays(5.0)[0][1] == 1.0
-    assert not r.overlays(30.0)
-    assert len(r.overlays(14.0)) == 1  # song 1's chapter card shows from 12 s for 8 s
-    assert r.overlays(21.0) == []
-    assert r.overlays(195.0)[-1][1] == 1.0  # the ending card
+    one, two = plan["songs"]
+    keys = [x.get("key") for x in one["items"] if x["kind"] == "slide"]
+    assert keys == ["open", "ch1"]
+    assert [x["kind"] for x in one["items"]][:2] == ["slide", "slide"]  # the film opens on a screen of its own, then the chapter card
+    assert [x.get("key") for x in two["items"] if x["kind"] == "slide"] == ["end"]
+    assert two["items"][-1]["kind"] == "slide"
+    sh = pr.shares_at(plan, 0.0)
+    assert sh == {(0, 0): 1.0}  # first frame: one clean screen at full strength
+    assert pr.shares_at(plan, 1.0) == {(0, 0): 1.0}
+
+
+def test_clear_need_and_hold_needs(tmp_path):
+    assert pr.clear_need(0) == pr.MIN_CLEAR
+    assert pr.clear_need(40) == pr.ORIENT + 40 / pr.READ_WPS
+    items = [{"kind": "card", "words": 8}, {"kind": "lyrics", "words": 40}]
+    needs = pr.hold_needs(items, False, False, 8.0, 4.0)
+    assert needs[1] > needs[0]
+    assert needs[1] >= pr.clear_need(40) + (pr.U - 0.5) * 4.0
+
+
+def test_a_short_song_drops_members_before_lyrics_and_keeps_the_first_page_and_slides(tmp_path):
+    mk = lambda kind, words=0, **kw: {"kind": kind, "words": words, "w": 1.0, **kw}
+    slide = mk("slide", 12, slide={"head": "A", "sub": "b", "log": "c", "seconds": 0})
+    items = [slide, mk("card", 8), mk("lyrics", 30), mk("lyrics", 30), mk("page", 15), mk("member")]
+    kept, needs, dropped = pr.fit_items(list(items), 40.0, False, False, 8.0, 4.0)
+    assert sum(needs) <= 40.0 or len(kept) <= 2
+    assert items[0] in kept and items[2] in kept
+    assert [x["kind"] for x in dropped][0] == "member"
+    assert "lyrics" not in [x["kind"] for x in dropped][:3]
+
+
+def test_measure_flags_a_fade_that_is_too_short(tmp_path):
+    story, cfg = make_story(tmp_path)
+    ok = pr.build_plan(story, cfg, 200.0)
+    short, fades = pr.readability(pr.measure(ok), ok["total"])
+    assert fades == []
+    story["picture_fade"] = 1.0
+    bad = pr.build_plan(story, cfg, 200.0)
+    short, fades = pr.readability(pr.measure(bad), bad["total"])
+    assert fades  # a 1 s dissolve into a screen with words is reported
 
 
 def test_frames_are_720p_and_the_band_dips_at_a_join(tmp_path):
@@ -164,19 +198,3 @@ def test_video_cards_fall_back_to_square_cards(tmp_path):
     empty = tmp_path / "video"
     empty.mkdir()
     assert pr.video_cards(sq, str(empty)) == (sq, False)
-
-
-def test_reading_floor_gives_a_long_page_its_reading_time(tmp_path):
-    items = [{"kind": "card", "path": tmp_path / "a-card-video.jpg", "w": 1.0},
-             {"kind": "lyrics", "path": tmp_path / "a-lyrics-video.jpg", "w": 1.6},
-             {"kind": "member", "path": tmp_path / "m.png", "w": 1.0},
-             {"kind": "member", "path": tmp_path / "n.png", "w": 1.0}]
-    words = {"a-lyrics-video.jpg": 150}  # 150 words / 3 = 50 s
-    assert pr.reading_floor(items, 200.0, words) == []
-    tw = sum(x["w"] for x in items)
-    assert 200.0 * items[1]["w"] / tw >= 50.0
-
-
-def test_reading_floor_reports_a_page_that_cannot_fit(tmp_path):
-    items = [{"kind": "lyrics", "path": tmp_path / "a-lyrics-video.jpg", "w": 1.6}, {"kind": "card", "path": tmp_path / "c.jpg", "w": 1.0}]
-    assert pr.reading_floor(items, 30.0, {"a-lyrics-video.jpg": 300}) == ["a-lyrics-video.jpg"]
