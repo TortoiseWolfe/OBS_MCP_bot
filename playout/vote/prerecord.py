@@ -32,7 +32,9 @@ FPS = 30
 CHUNK = 30  # seconds per worker job; a multiple of the 2 s keyframe gap
 CW, CH = round(W * 1.12), round(PH * 1.12)  # still canvas: 12% bigger than the window, so a zoom has room
 UNIT_MAX = 24.0  # longest one picture may stay up, in seconds per weight unit
-WEIGHT = {"card": 1.0, "lyrics": 1.6, "page": 2.0, "member": 1.0}
+WEIGHT = {"card": 1.0, "lyrics": 1.6, "page": 2.0, "member": 1.0}  # a clip weighs its length in UNIT_MAX units
+CLIP_FPS = 20  # frames kept per second of a clip
+CLIP_W, CLIP_H = 1173, PH  # a 16:9 clip fitted into the picture area
 MEMBERS = ["Form", "Ivory", "Brass", "Chops", "Reed", "Verse", "Crash"]
 
 
@@ -77,8 +79,15 @@ def pick_items(story, cfg, song, seconds):
         pages = [{"kind": "page", "path": ex(story["pages_dir"]) / f"page{p['page']:02d}.png", "w": WEIGHT["page"]}
                  for p in data if p.get("track") == song["comic_track"]]
         pages = [x for x in pages if x["path"].is_file()]
+    clips = []  # making-of clips from NX-01 (turntables, sheets beside the model, fit rounds); a missing file is skipped
+    for name in song.get("clips", []):
+        f = ex(story.get("visuals", "")) / f"vz-{name}.mp4"
+        if f.is_file():
+            dur = probe_seconds(f)
+            clips.append({"kind": "clip", "path": f, "w": max(0.5, dur / UNIT_MAX), "dur": dur,
+                          "loop": name.startswith(("turntable", "crash-"))})
     pool = [{"kind": "member", "path": p, "w": WEIGHT["member"]} for p in member_pool(story, song.get("singers", []))]
-    items = card + lyrics + pages
+    items = card + clips + lyrics + pages
     if held:  # lyric cards and portraits take turns
         items, mem = [], list(pool)
         for ly in lyrics:
@@ -86,6 +95,7 @@ def pick_items(story, cfg, song, seconds):
             if mem:
                 items.append(mem.pop(0))
         pool = mem
+        items += clips
     need = seconds / UNIT_MAX
     k = 0
     while sum(x["w"] for x in items) < need and pool:
@@ -110,6 +120,8 @@ def build_plan(story, cfg, total):
         for x in items:
             acc += D * x["w"] / tw
             bounds.append(acc)
+        for x in items:  # seconds the picture is up, fades included: a clip plays through it (looping if it can)
+            x["span"] = D * x["w"] / tw + float(story["picture_fade"])
         songs.append({**s, "end": end, "items": items, "bounds": bounds})
     return {"total": total, "join": J, "fade": float(story["picture_fade"]), "songs": songs,
             "opening": story["opening"], "ending": story["ending"]}
@@ -121,6 +133,24 @@ def plan_json(plan):
             return str(o)
         raise TypeError(type(o))
     return json.dumps(plan, indent=1, default=clean)
+
+
+def extract_clips(plan, out):
+    """Decode each clip the plan uses once, into out/clipframes/<name>/NNNNN.jpg at CLIP_FPS, and note the folder on the item."""
+    done = {}
+    for s in plan["songs"]:
+        for x in s["items"]:
+            if x["kind"] != "clip":
+                continue
+            key = str(x["path"])
+            if key not in done:
+                d = Path(out) / "clipframes" / Path(key).stem
+                d.mkdir(parents=True, exist_ok=True)
+                if not any(d.glob("*.jpg")):
+                    subprocess.run(["nice", "-n", "19", "ffmpeg", "-y", "-loglevel", "error", "-i", key, "-vf",
+                                    f"fps={CLIP_FPS},scale={CLIP_W}:{CLIP_H}", "-q:v", "4", str(d / "%05d.jpg")], check=True)
+                done[key] = (str(d), len(list(d.glob("*.jpg"))))
+            x["frames"], x["count"] = done[key]
 
 
 # ---------------------------------------------------------------- pictures
@@ -161,7 +191,19 @@ class Renderer:
         bg.paste(fg, ((CW - fg.width) // 2, (CH - fg.height) // 2))
         return bg
 
+    def clip_frame(self, item, p):
+        """The clip's picture at its own time: p of the way through the span; it loops if it can, else holds its last frame."""
+        t = p * item["span"]
+        n = item["count"]
+        i = int(t * CLIP_FPS) % n if item.get("loop") else min(n - 1, int(t * CLIP_FPS))
+        fg = Image.open(Path(item["frames"]) / f"{i + 1:05d}.jpg").convert("RGB")
+        bg = fg.resize((16, 9), Image.BILINEAR).resize((W, PH), Image.BILINEAR).point(lambda v: int(v * 0.45))
+        bg.paste(fg, ((W - fg.width) // 2, 0))
+        return bg
+
     def item_frame(self, item, p, flip):
+        if item["kind"] == "clip":
+            return self.clip_frame(item, p)
         img = self.prepared(item)
         if item["kind"] == "page":
             y = (img.height - PH) * smooth(p)
@@ -420,6 +462,8 @@ def main(argv=None):
     plan = build_plan(story, cfg, total)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.cmd == "render":
+        extract_clips(plan, out)
     (out / "plan.json").write_text(plan_json(plan))
     if args.cmd == "plan":
         return 0

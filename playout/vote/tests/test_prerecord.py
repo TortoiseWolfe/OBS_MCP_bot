@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -113,3 +114,22 @@ def test_frames_are_720p_and_the_band_dips_at_a_join(tmp_path):
     assert mid.getextrema() == ((0, 0), (0, 0), (0, 0))
     assert r.frame_at(150.0).crop((0, pr.PH, pr.W, pr.H)).getextrema()[0][1] > 200  # the new band text is white
     assert r.frame_at(199.9).getextrema()[0][1] < 30  # the film ends on black
+
+
+def test_clips_join_the_rotation_and_play_through_their_slot(tmp_path):
+    story, cfg = make_story(tmp_path)
+    vis = tmp_path / "vis"
+    vis.mkdir()
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=s=160x90:r=10:d=3", "-pix_fmt", "yuv420p",
+                    str(vis / "vz-turntable-x.mp4")], check=True)
+    story["visuals"] = str(vis)
+    story["songs"][0]["clips"] = ["turntable-x", "turntable-missing"]  # a file that is not there is skipped
+    plan = pr.build_plan(story, cfg, 200.0)
+    clips = [x for x in plan["songs"][0]["items"] if x["kind"] == "clip"]
+    assert len(clips) == 1 and clips[0]["loop"] and abs(clips[0]["dur"] - 3.0) < 0.2
+    assert all("span" in x for s in plan["songs"] for x in s["items"])
+    pr.extract_clips(plan, tmp_path / "out")
+    assert clips[0]["count"] >= 55  # 3 s at 20 frames a second
+    r = pr.Renderer(plan, FONT)
+    lo = plan["songs"][0]["bounds"][[x["kind"] for x in plan["songs"][0]["items"]].index("clip") - 1]
+    assert r.frame_at(lo + 5.0).size == (pr.W, pr.H)
