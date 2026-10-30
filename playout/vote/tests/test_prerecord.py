@@ -1,0 +1,115 @@
+import json
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import prerecord as pr
+
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _img(path, size=(300, 400), colour=(90, 60, 30)):
+    Image.new("RGB", size, colour).save(path)
+    return path
+
+
+def make_story(tmp_path):
+    """Two songs: song 1 has a card, a lyric card and a comic page; song 2 is held (Corps rule) and has a card, a lyric card and portraits."""
+    art = tmp_path / "art"
+    art.mkdir()
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    port = tmp_path / "portraits"
+    port.mkdir()
+    for n in ("Nell", "Verse", "Form"):
+        _img(port / f"portrait-{n}.png")
+    _img(port / "ref-verse_ref.png")
+    _img(art / "one-card.jpg")
+    _img(art / "one-lyrics-1.jpg")
+    _img(art / "two-card.jpg")
+    _img(art / "two-lyrics-1.jpg")
+    _img(pages / "page01.png", (400, 1200))
+    (tmp_path / "pages.json").write_text(json.dumps({"pages": [{"page": 1, "track": 1}]}))
+    (art / "track-cards.json").write_text(json.dumps({
+        "one": ["one-card.jpg", "one-lyrics-1.jpg"],
+        "two": ["two-card.jpg", "two-lyrics-1.jpg"],
+    }))
+    cfg = {"track_cards": str(art / "track-cards.json"), "font": FONT}
+    story = {
+        "join_seconds": 8, "picture_fade": 2.5,
+        "portraits": str(port), "pages": str(tmp_path / "pages.json"), "pages_dir": str(pages),
+        "opening": {"lines": ["THE BAND WAGON", "Replay", "A line"], "seconds": 10},
+        "ending": {"lines": ["Thanks", "scripthammer.com"], "seconds": 20},
+        "songs": [
+            {"n": 1, "id": "one", "title": "One", "start": 0, "label": "Nell is 9 - 1848", "comic_track": 1, "singers": ["Nell", "Verse"],
+             "chapter": {"at": 12, "head": "ACT ONE", "sub": "Nell is 9", "log": "Log, entry one."}},
+            {"n": 2, "id": "two", "title": "Two", "start": 100, "held": True, "singers": ["Verse"]},
+        ],
+    }
+    return story, cfg
+
+
+def test_smooth_is_clamped_and_symmetric():
+    assert pr.smooth(-1) == 0.0
+    assert pr.smooth(2) == 1.0
+    assert pr.smooth(0.5) == 0.5
+    assert abs(pr.smooth(0.25) + pr.smooth(0.75) - 1.0) < 1e-9
+
+
+def test_bounds_sum_to_song_length(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 200.0)
+    one, two = plan["songs"]
+    assert one["end"] == 108.0  # song 2 starts at 100 and the join reaches back 8 s into song 1
+    assert abs(one["bounds"][-1] - 108.0) < 1e-6
+    assert two["end"] == 200.0
+    assert abs(two["bounds"][-1] - 100.0) < 1e-6
+    assert all(a < b for a, b in zip(one["bounds"], one["bounds"][1:]))
+
+
+def test_held_songs_show_no_card_or_page(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 200.0)
+    one, two = plan["songs"]
+    assert {"card", "page"} <= {x["kind"] for x in one["items"]}
+    kinds = {x["kind"] for x in two["items"]}
+    assert "lyrics" in kinds and not kinds & {"card", "page"}
+    assert not any("two-card" in str(x["path"]) for x in two["items"])
+
+
+def test_no_picture_stays_up_past_the_limit(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 400.0)  # song 2 is 300 s long: the pool is shown, then goes round again
+    two = plan["songs"][1]
+    lo = 0.0
+    for x, hi in zip(two["items"], two["bounds"]):
+        assert (hi - lo) <= pr.UNIT_MAX * x["w"] + 1e-6
+        lo = hi
+
+
+def test_overlay_timing(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 200.0)
+    r = pr.Renderer(plan, FONT)
+    assert r.overlays(0.0)[0][1] == 0.0  # the opening card fades in from nothing
+    assert r.overlays(5.0)[0][1] == 1.0
+    assert not r.overlays(30.0)
+    assert len(r.overlays(14.0)) == 1  # song 1's chapter card shows from 12 s for 8 s
+    assert r.overlays(21.0) == []
+    assert r.overlays(195.0)[-1][1] == 1.0  # the ending card
+
+
+def test_frames_are_720p_and_the_band_dips_at_a_join(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 200.0)
+    r = pr.Renderer(plan, FONT)
+    for t in (3.0, 50.0, 100.0, 104.0, 108.5, 150.0, 199.5):
+        assert r.frame_at(t).size == (pr.W, pr.H)
+    # halfway through the join both band texts have faded out: the band is black
+    mid = r.frame_at(104.0).crop((0, pr.PH, pr.W, pr.H))
+    assert mid.getextrema() == ((0, 0), (0, 0), (0, 0))
+    assert r.frame_at(150.0).crop((0, pr.PH, pr.W, pr.H)).getextrema()[0][1] > 200  # the new band text is white
+    assert r.frame_at(199.9).getextrema()[0][1] < 30  # the film ends on black
