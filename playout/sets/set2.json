@@ -1,0 +1,16 @@
+{
+  "name": "set2",
+  "title": "The Band Wagon: headline set",
+  "live_start": "2026-10-29 19:58",
+  "live_minutes": 122,
+  "audio_dir": "~/repos/hub/internship/showcase/audio/band-wagon",
+  "art_dir": "~/repos/hub/internship/showcase/art/band-wagon",
+  "cover": "cover-3-night.png",
+  "items": [
+    {"kind": "song", "file": "bw-alt-1.mp3", "title": "The Band Wagon (after hours)", "robots": ["Ivory","Crash","Chops","Reed","Brass","Verse","Form"]},
+    {"kind": "song", "file": "bw-duet-1.mp3", "title": "Should the Machines Take Over? Take 1", "robots": ["Ivory","Chops"], "tag": "1"},
+    {"kind": "song", "file": "bw-duet-2.mp3", "title": "Should the Machines Take Over? Take 2", "robots": ["Ivory","Chops"], "tag": "2"},
+    {"kind": "card", "seconds": 12, "lines": ["Type 1 or 2 in chat:", "which take wins?"]},
+    {"kind": "song", "file": "bw-hook-mix.mp3", "title": "The Band Wagon (hook)", "robots": ["Ivory","Crash","Chops","Reed","Brass","Verse","Form"]}
+  ]
+}
