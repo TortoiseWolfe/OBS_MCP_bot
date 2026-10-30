@@ -9,7 +9,7 @@ function of the film time, so the film is cut into 30 s chunks, each rendered by
 Per song: its own card, lyric cards, comic pages (a slow pan), then the band's portraits and design references; 2.5 s crossfades
 between pictures, an 8 s picture crossfade at each song join (matching the sound), a "Now playing" band with Nell's age and the year,
 chapter cards with Form's log lines as text. Cards that draw the Bicycle Corps are held (story.json "held": lyric cards and portraits only).
-Pictures: the widescreen video cards (1280x660, design A, built by hub build_tracks.py VIDEO=1) fill the picture area with no blurred
+Pictures: the widescreen video cards (1280x632, design A, built by hub build_tracks.py VIDEO=1) fill the picture area with no blurred
 filler; chapter, opening and end screens are full screens of their own (cover on the left, big words on the right), so no text sits on card text.
 Stdlib Python plus Pillow and the host ffmpeg/ffprobe; no installs."""
 import argparse
@@ -28,7 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bwvote import slideshow  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-W, H, BAND = 1280, 720, 60
+W, H, BAND = 1280, 720, 88  # the band is tall enough that its text ends 36+ px above the frame's bottom edge (EBU R95 graphics-safe margin, 5% of 720)
+BAND_MARGIN = 36
 PH = H - BAND  # picture area above the band
 FPS = 30
 CHUNK = 30  # seconds per worker job; a multiple of the 2 s keyframe gap
@@ -298,10 +299,12 @@ class Renderer:
             size = 38
             while True:
                 f = ImageFont.truetype(self.font_path, size)
-                if d.textlength(text, font=f) <= W - 60 or size <= 18:
+                if d.textlength(text, font=f) <= W - 128 or size <= 18:  # 64 px each side: the graphics-safe width
                     break
                 size -= 2
-            d.text(((W - d.textlength(text, font=f)) / 2, (BAND - size) / 2 - 4), text, font=f, fill=(255, 255, 255))
+            bb = d.textbbox((0, 0), text, font=f)
+            # the lowest letter (a descender) ends BAND_MARGIN + 2 px above the bottom of the frame
+            d.text(((W - d.textlength(text, font=f)) / 2 - bb[0], BAND - BAND_MARGIN - 2 - bb[3]), text, font=f, fill=(255, 255, 255))
             self.bands[n] = img
         return self.bands[n]
 
@@ -336,9 +339,10 @@ class Renderer:
         if art:
             img = art.resize((W, W), Image.LANCZOS).crop((0, 300, W, 300 + PH)).filter(ImageFilter.GaussianBlur(26)).point(lambda v: int(v * 0.2))
             d = ImageDraw.Draw(img)
-            d.rectangle([60, 146, 64 + 300 + 3, 150 + 300 + 3], fill=(232, 179, 76))
-            img.paste(art.resize((300, 300), Image.LANCZOS), (64, 150))
-            d.rectangle([410, 150, 414, 450], fill=(232, 179, 76))
+            ay = PH // 2 - 150
+            d.rectangle([60, ay - 4, 64 + 300 + 3, ay + 300 + 3], fill=(232, 179, 76))
+            img.paste(art.resize((300, 300), Image.LANCZOS), (64, ay))
+            d.rectangle([410, ay, 414, ay + 300], fill=(232, 179, 76))
             x = 446
         else:
             img, x = Image.new("RGB", (W, PH), (16, 11, 8)), 64
@@ -364,7 +368,7 @@ class Renderer:
         if lines and rows:
             rows.append(("", None, None, 14))
         rows += [(ln, bold(logsize), (246, 236, 210), int(logsize * 1.38)) for ln in lines]
-        y = max(40, 300 - sum(r[3] for r in rows) // 2)
+        y = max(40, PH // 2 - sum(r[3] for r in rows) // 2)
         for text, font, colour, h in rows:
             if text:
                 d.text((x, y), text, font=font, fill=colour)

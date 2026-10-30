@@ -116,6 +116,17 @@ def test_frames_are_720p_and_the_band_dips_at_a_join(tmp_path):
     assert r.frame_at(199.9).getextrema()[0][1] < 30  # the film ends on black
 
 
+def test_band_text_keeps_the_graphics_safe_margins(tmp_path):
+    story, cfg = make_story(tmp_path)
+    plan = pr.build_plan(story, cfg, 200.0)
+    r = pr.Renderer(plan, FONT)
+    for t in (50.0, 150.0):
+        band = r.frame_at(t).crop((0, pr.PH, pr.W, pr.H)).convert("L").point(lambda v: 255 if v > 200 else 0)
+        x0, y0, x1, y1 = band.getbbox()  # the white band text (right and bottom edges are one past the last pixel)
+        assert pr.H - (pr.PH + y1) >= 36  # lowest text pixel at least 36 px above the frame's bottom (5% of 720)
+        assert x0 >= 64 and pr.W - x1 >= 64
+
+
 def test_clips_join_the_rotation_and_play_through_their_slot(tmp_path):
     story, cfg = make_story(tmp_path)
     vis = tmp_path / "vis"
