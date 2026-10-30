@@ -4,6 +4,7 @@
  "pages": "~/repos/hub/internship/showcase/band-wagon-comic/pages.json",
  "pages_dir": "~/repos/hub/internship/showcase/band-wagon-comic/pages",
  "portraits": "~/band-wagon-tower/art/headline-rotation",
+ "video_cards": "~/band-wagon-tower/art/cards/video",
  "join_seconds": 8,
  "picture_fade": 2.5,
  "opening": {

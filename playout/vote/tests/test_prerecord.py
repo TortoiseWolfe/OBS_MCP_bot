@@ -133,3 +133,39 @@ def test_clips_join_the_rotation_and_play_through_their_slot(tmp_path):
     r = pr.Renderer(plan, FONT)
     lo = plan["songs"][0]["bounds"][[x["kind"] for x in plan["songs"][0]["items"]].index("clip") - 1]
     assert r.frame_at(lo + 5.0).size == (pr.W, pr.H)
+
+
+def test_video_cards_replace_square_cards_in_order(tmp_path):
+    sq = [tmp_path / n for n in ("a-card.jpg", "a-lyrics.jpg", "a-lyrics-2.jpg")]
+    vd = tmp_path / "video"
+    vd.mkdir()
+    for n in ("a-card-video.jpg", "a-lyrics-video.jpg", "a-lyrics-video-2.jpg", "a-lyrics-video-10.jpg"):
+        (vd / n).write_bytes(b"x")
+    out, used = pr.video_cards(sq, str(vd))
+    assert used
+    assert [p.name for p in out] == ["a-card-video.jpg", "a-lyrics-video.jpg", "a-lyrics-video-2.jpg", "a-lyrics-video-10.jpg"]
+
+
+def test_video_cards_fall_back_to_square_cards(tmp_path):
+    sq = [tmp_path / "a-card.jpg"]
+    assert pr.video_cards(sq, None) == (sq, False)
+    assert pr.video_cards(sq, str(tmp_path / "missing")) == (sq, False)
+    empty = tmp_path / "video"
+    empty.mkdir()
+    assert pr.video_cards(sq, str(empty)) == (sq, False)
+
+
+def test_reading_floor_gives_a_long_page_its_reading_time(tmp_path):
+    items = [{"kind": "card", "path": tmp_path / "a-card-video.jpg", "w": 1.0},
+             {"kind": "lyrics", "path": tmp_path / "a-lyrics-video.jpg", "w": 1.6},
+             {"kind": "member", "path": tmp_path / "m.png", "w": 1.0},
+             {"kind": "member", "path": tmp_path / "n.png", "w": 1.0}]
+    words = {"a-lyrics-video.jpg": 150}  # 150 words / 3 = 50 s
+    assert pr.reading_floor(items, 200.0, words) == []
+    tw = sum(x["w"] for x in items)
+    assert 200.0 * items[1]["w"] / tw >= 50.0
+
+
+def test_reading_floor_reports_a_page_that_cannot_fit(tmp_path):
+    items = [{"kind": "lyrics", "path": tmp_path / "a-lyrics-video.jpg", "w": 1.6}, {"kind": "card", "path": tmp_path / "c.jpg", "w": 1.0}]
+    assert pr.reading_floor(items, 30.0, {"a-lyrics-video.jpg": 300}) == ["a-lyrics-video.jpg"]

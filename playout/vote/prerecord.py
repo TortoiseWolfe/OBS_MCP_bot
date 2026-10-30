@@ -9,6 +9,8 @@ function of the film time, so the film is cut into 30 s chunks, each rendered by
 Per song: its own card, lyric cards, comic pages (a slow pan), then the band's portraits and design references; 2.5 s crossfades
 between pictures, an 8 s picture crossfade at each song join (matching the sound), a "Now playing" band with Nell's age and the year,
 chapter cards with Form's log lines as text. Cards that draw the Bicycle Corps are held (story.json "held": lyric cards and portraits only).
+Pictures: the widescreen video cards (1280x660, design A, built by hub build_tracks.py VIDEO=1) fill the picture area with no blurred
+filler; chapter, opening and end screens are full screens of their own (cover on the left, big words on the right), so no text sits on card text.
 Stdlib Python plus Pillow and the host ffmpeg/ffprobe; no installs."""
 import argparse
 import json
@@ -35,6 +37,7 @@ UNIT_MAX = 24.0  # longest one picture may stay up, in seconds per weight unit
 WEIGHT = {"card": 1.0, "lyrics": 1.6, "page": 2.0, "member": 1.0}  # a clip weighs its length in UNIT_MAX units
 CLIP_FPS = 20  # frames kept per second of a clip
 CLIP_W, CLIP_H = 1173, PH  # a 16:9 clip fitted into the picture area
+LYR_ART = (64, 150, 396, 482)  # where a video lyric page carries the cover (build_tracks.py V_ART); chapter screens crop it from there
 MEMBERS = ["Form", "Ivory", "Brass", "Chops", "Reed", "Verse", "Crash"]
 
 
@@ -67,12 +70,57 @@ def member_pool(story, singers):
     return out
 
 
+def video_cards(cards, vdir):
+    """The widescreen versions of a song's square cards: [track card, lyric pages...] from `vdir`; the square cards when it has none."""
+    if not vdir or not ex(vdir).is_dir():
+        return cards, False
+    stems = []
+    for c in cards:
+        st = re.sub(r"-(card|lyrics(-\d+)?)\.jpg$", "", c.name)
+        if st not in stems:
+            stems.append(st)
+    out = []
+    for st in stems:
+        card = ex(vdir) / f"{st}-card-video.jpg"
+        if card.is_file():
+            out.append(card)
+        out += sorted(ex(vdir).glob(f"{st}-lyrics-video*.jpg"), key=lambda f: int(re.search(r"-(\d+)\.jpg$", f.name).group(1)) if re.search(r"-(\d+)\.jpg$", f.name) else 1)
+    return (out, True) if out else (cards, False)
+
+
+READ_WPS = 3.0  # a lyric page stays up at least words / 3 seconds (180 words a minute, the BBC's fastest subtitle speed)
+
+
+def reading_floor(items, seconds, words):
+    """Raise the weight of any lyric page that would be up shorter than its words need, so it gets its reading time; returns the pages that still cannot get it."""
+    short = []
+    for _ in range(40):
+        tw = sum(x["w"] for x in items)
+        grown = False
+        for x in items:
+            if x["kind"] != "lyrics":
+                continue
+            need = words.get(x["path"].name, 0) / READ_WPS
+            if seconds * x["w"] / tw < need:
+                rest = tw - x["w"]
+                share = min(need / seconds, 0.9)
+                x["w"] = max(x["w"], share * rest / (1 - share) * 1.02)
+                grown = True
+        if not grown:
+            break
+    tw = sum(x["w"] for x in items)
+    for x in items:
+        if x["kind"] == "lyrics" and seconds * x["w"] / tw < words.get(x["path"].name, 0) / READ_WPS - 0.5:
+            short.append(x["path"].name)
+    return short
+
+
 def pick_items(story, cfg, song, seconds):
     """The song's pictures in showing order, each {kind, path, w}; the song fills `seconds` with no picture up longer than UNIT_MAX per weight."""
     held = bool(song.get("held"))
-    cards = [Path(p) for p in slideshow.track_cards(cfg, {"id": song["id"]})]
-    lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"]} for p in cards if "lyrics" in p.name]
-    card = [{"kind": "card", "path": p, "w": WEIGHT["card"]} for p in cards if "lyrics" not in p.name and not held]
+    cards, video = video_cards([Path(p) for p in slideshow.track_cards(cfg, {"id": song["id"]})], story.get("video_cards"))
+    lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"], "video": video} for p in cards if "lyrics" in p.name]
+    card = [{"kind": "card", "path": p, "w": WEIGHT["card"], "video": video} for p in cards if "lyrics" not in p.name and not held]
     pages = []
     if song.get("comic_track") and not held:
         data = json.loads(ex(story["pages"]).read_text())["pages"]
@@ -115,6 +163,9 @@ def build_plan(story, cfg, total):
         end = raw[i + 1]["start"] + J if i + 1 < len(raw) else total
         D = end - s["start"]
         items = pick_items(story, cfg, s, D)
+        vd = story.get("video_cards")
+        wf = ex(vd) / "words.json" if vd else None
+        short = reading_floor(items, D, json.loads(wf.read_text()) if wf and wf.is_file() else {})
         tw = sum(x["w"] for x in items)
         acc, bounds = 0.0, []
         for x in items:
@@ -122,7 +173,7 @@ def build_plan(story, cfg, total):
             bounds.append(acc)
         for x in items:  # seconds the picture is up, fades included: a clip plays through it (looping if it can)
             x["span"] = D * x["w"] / tw + float(story["picture_fade"])
-        songs.append({**s, "end": end, "items": items, "bounds": bounds})
+        songs.append({**s, "end": end, "items": items, "bounds": bounds, "pages_too_short": short})
     return {"total": total, "join": J, "fade": float(story["picture_fade"]), "songs": songs,
             "opening": story["opening"], "ending": story["ending"]}
 
@@ -176,6 +227,8 @@ class Renderer:
     @staticmethod
     def _prepare(item):
         art = Image.open(item["path"]).convert("RGB")
+        if item.get("video"):  # a widescreen card already fills the picture area
+            return art if art.size == (W, PH) else art.resize((W, PH), Image.LANCZOS)
         if item["kind"] == "page":
             k = W / art.width
             return art.resize((W, max(PH, round(art.height * k))), Image.LANCZOS)
@@ -208,6 +261,12 @@ class Renderer:
         if item["kind"] == "page":
             y = (img.height - PH) * smooth(p)
             return img.resize((W, PH), Image.BILINEAR, box=(0, y, W, y + PH))
+        if item.get("video"):  # a lyric page stays still; a track card drifts in 3% (its text sits 64 px from the edge, the safe margin is 36)
+            if item["kind"] == "lyrics":
+                return img
+            q = 0.03 * (1 - p if flip else p)
+            bw, bh = W * (1 - q), PH * (1 - q)
+            return img.resize((W, PH), Image.BILINEAR, box=((W - bw) / 2, (PH - bh) / 2, (W + bw) / 2, (PH + bh) / 2))
         q = 1.0 if item["kind"] == "lyrics" else (1 - p if flip else p)
         bw, bh = CW - (CW - W) * q, CH - (CH - PH) * q
         x0, y0 = (CW - bw) / 2, (CH - bh) / 2
@@ -263,51 +322,68 @@ class Renderer:
         out.paste(Image.blend(self.band(old), black, min(1.0, 2 * a)) if a < 0.5 else Image.blend(black, self.band(new), 2 * a - 1), (0, PH))
         return out
 
-    # -- overlays
-    def panel(self, key, heading, sub, log, big=False):
+    # -- overlays: full screens of their own (cover left, big words right); nothing is laid over a card's text
+    def slide(self, key, song, head, sub, log):
+        """A full picture-area screen as RGBA (opaque): the song's cover cropped from its first video lyric page, then the words."""
         if key in self.panels:
             return self.panels[key]
-        rows = []  # (text, size, colour)
-        if heading:
-            rows.append((heading, 46 if big else 40, (255, 205, 110)))
-        if sub:
-            rows.append((sub, 58 if big else 50, (255, 255, 255)))
-        d = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        art = None
+        for x in song["items"]:
+            if x["kind"] == "lyrics" and x.get("video"):
+                art = Image.open(x["path"]).convert("RGB").crop(LYR_ART)
+                break
+        d0 = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        if art:
+            img = art.resize((W, W), Image.LANCZOS).crop((0, 300, W, 300 + PH)).filter(ImageFilter.GaussianBlur(26)).point(lambda v: int(v * 0.2))
+            d = ImageDraw.Draw(img)
+            d.rectangle([60, 146, 64 + 300 + 3, 150 + 300 + 3], fill=(232, 179, 76))
+            img.paste(art.resize((300, 300), Image.LANCZOS), (64, 150))
+            d.rectangle([410, 150, 414, 450], fill=(232, 179, 76))
+            x = 446
+        else:
+            img, x = Image.new("RGB", (W, PH), (16, 11, 8)), 64
+        d = ImageDraw.Draw(img)
+        lil = lambda n: ImageFont.truetype(self.font_path, n)
+        bold = lambda n: ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", n)
+        logsize = 26 if (head or sub) else 34
+        lines = []
         if log:
-            f = ImageFont.truetype(self.font_path, 30)
             line = ""
             for word in log.split():
-                if d.textlength(line + " " + word, font=f) > 1020 and line:
-                    rows.append((line, 30, (235, 235, 235)))
+                if d0.textlength((line + " " + word).strip(), font=bold(logsize)) > W - 64 - x and line:
+                    lines.append(line)
                     line = word
                 else:
                     line = (line + " " + word).strip()
-            rows.append((line, 30, (235, 235, 235)))
-        height = sum(int(r[1] * 1.35) for r in rows) + 40
-        width = int(max(d.textlength(r[0], font=ImageFont.truetype(self.font_path, r[1])) for r in rows)) + 90
-        width = min(W - 40, max(width, 600))
-        panel = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        pd = ImageDraw.Draw(panel)
-        pd.rounded_rectangle((0, 0, width - 1, height - 1), radius=22, fill=(0, 0, 0, 185))
-        y = 20
-        for text, size, colour in rows:
-            f = ImageFont.truetype(self.font_path, size)
-            pd.text(((width - pd.textlength(text, font=f)) / 2, y), text, font=f, fill=colour)
-            y += int(size * 1.35)
-        self.panels[key] = panel
-        return panel
+            lines.append(line)
+        rows = []  # (text, font, colour, height)
+        if head:
+            rows.append((head, lil(46 if sub else 64), (232, 179, 76) if sub else (255, 255, 255), 58 if sub else 80))
+        if sub:
+            rows.append((sub, lil(76), (255, 255, 255), 92))
+        if lines and rows:
+            rows.append(("", None, None, 14))
+        rows += [(ln, bold(logsize), (246, 236, 210), int(logsize * 1.38)) for ln in lines]
+        y = max(40, 300 - sum(r[3] for r in rows) // 2)
+        for text, font, colour, h in rows:
+            if text:
+                d.text((x, y), text, font=font, fill=colour)
+            y += h
+        self.panels[key] = img.convert("RGBA")
+        return self.panels[key]
 
     def overlays(self, t):
-        """[(panel, alpha, centre_y)] showing at film time t."""
+        """[(screen, alpha, centre_y)] showing at film time t."""
         pl, out = self.plan, []
         o = pl["opening"]
         if t < o["seconds"]:
             a = min(1.0, t / 1.0, (o["seconds"] - t) / 1.5)
-            out.append((self._open_panel(o), max(0.0, a), PH // 2))
+            ln = o["lines"]
+            out.append((self.slide("open", pl["songs"][0], ln[0], ln[1], ln[2]), max(0.0, a), PH // 2))
         e = pl["ending"]
         if t > pl["total"] - e["seconds"]:
             a = min(1.0, (t - (pl["total"] - e["seconds"])) / 2.0)
-            out.append((self._end_panel(e), a, PH // 2))
+            out.append((self.slide("end", pl["songs"][-1], e["lines"][0], "", e["lines"][1]), a, PH // 2))
         for s in pl["songs"]:
             c = s.get("chapter")
             if not c:
@@ -315,19 +391,8 @@ class Renderer:
             t0 = s["start"] + c["at"] + (0 if s["n"] == 1 else pl["join"] / 2)
             if t0 <= t < t0 + 8:
                 a = min(1.0, (t - t0) / 1.0, (t0 + 8 - t) / 1.0)
-                out.append((self.panel(f"ch{s['n']}", c["head"], c["sub"], c["log"]), a, PH - 190))
+                out.append((self.slide(f"ch{s['n']}", s, c["head"], c["sub"], c["log"]), a, PH // 2))
         return out
-
-    def _open_panel(self, o):
-        if "open" not in self.panels:
-            lines = o["lines"]
-            self.panels["open"] = self.panel("open-x", lines[0], lines[1], lines[2], True)
-        return self.panels["open"]
-
-    def _end_panel(self, e):
-        if "end" not in self.panels:
-            self.panels["end"] = self.panel("end-x", e["lines"][0], "", e["lines"][1], True)
-        return self.panels["end"]
 
     def frame_at(self, t):
         pl = self.plan
@@ -404,6 +469,18 @@ def run_checks(film, plan, t0, seconds, out):
     chk["black_runs_over_1s"] = len(re.findall(r"black_start", bd))
     fd = ff("-i", str(film), "-an", "-vf", "freezedetect=n=-60dB:d=8", "-f", "null", "-")
     chk["frozen_runs_over_8s"] = len(re.findall(r"freeze_start", fd))
+    # a still picture is allowed only where it is by design: a lyric page, or the end screen
+    allowed = [(plan["total"] - plan["ending"]["seconds"] - 1, plan["total"] + 1)]
+    for s in plan["songs"]:
+        lo = 0.0
+        for x, hi in zip(s["items"], s["bounds"]):
+            if x["kind"] == "lyrics":
+                allowed.append((s["start"] + lo - plan["fade"], s["start"] + hi + plan["fade"]))
+            lo = hi
+    runs = list(zip(map(float, re.findall(r"freeze_start: ([\d.]+)", fd)), map(float, re.findall(r"freeze_end: ([\d.]+)", fd))))
+    if len(runs) < len(re.findall(r"freeze_start", fd)):  # the last run has no end line: it lasts to the end
+        runs.append((float(re.findall(r"freeze_start: ([\d.]+)", fd)[-1]), seconds))
+    chk["frozen_outside_lyric_pages"] = [[a + t0, b + t0] for a, b in runs if not any(lo - 0.5 <= a + t0 and b + t0 <= hi + 0.5 for lo, hi in allowed)]
     # per song loudness, for songs fully inside the film
     per = []
     for s in plan["songs"]:
@@ -441,6 +518,8 @@ def run_checks(film, plan, t0, seconds, out):
         if s.get("held"):
             bad += [str(x["path"]) for x in s["items"] if x["kind"] in ("card", "page")]
     chk["held_pictures_used"] = bad
+    chk["square_cards_used"] = [str(x["path"]) for s in plan["songs"] for x in s["items"] if x["kind"] in ("card", "lyrics") and not x.get("video")]
+    chk["lyric_pages_too_short"] = [n for s in plan["songs"] for n in s.get("pages_too_short", [])]  # pages that could not get words / 3 seconds
     return chk
 
 
