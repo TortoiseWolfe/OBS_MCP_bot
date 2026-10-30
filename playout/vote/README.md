@@ -49,3 +49,19 @@ Catalog (`bwvote/catalog.py`): the songs in `playlist.json` plus the take factor
 ## Vote log and play log
 - `state/votes.jsonl`: one line per counted `!up` / `!down`: clock time, song, seconds into that song, vote, and the viewer as a salted hash (never a name). `state/plays.jsonl`: one line per song start. Both use this machine's clock, read in the same process. A vote lands on the song a viewer was seeing, which is the encoder position minus `VOTE_LAG` (6 s).
 - `BWVOTE_STATE=<folder>` moves all of `state/`, so an offline test run never touches a live one.
+
+## Replay film
+`prerecord.py` renders a show as one prerecorded film (a file that can go on air with `ffmpeg -re -c copy`, so nothing is made live). Run from this folder:
+
+```
+python3 prerecord.py plan   --out DIR                              # plan.json only
+python3 prerecord.py render --out DIR [--start S --seconds N]      # film.mp4, plan.json, checks.json, frames/
+```
+
+- Inputs are in `replay/story.json`: the finished story-set mp3 (8 s crossfades already in it), the 21 songs with start times, Nell's age and year, chapter cards with Form's log lines, the card map in `playlist.json`, the comic pages and the band portraits.
+- The picture is a pure function of the film time, so it is cut into 30 s chunks drawn by 6 workers at `nice 19` and joined without re-encoding. Output: 1280x720, 30 frames a second, x264 crf 22, at most 2000 kbit/s, a keyframe every 2 s, AAC 192k.
+- Per song: its own card, lyric cards and comic pages, then the singers' portraits and design references; 2.5 s crossfades between pictures, an 8 s crossfade at each song join, and a "Now playing" band that fades out and in.
+- Making-of clips (NX-01's release, kept outside git in the folder named by `"visuals"` in `story.json`) join a song's rotation through its `"clips"` list: each clip plays through its slot, loops if it is a turntable or drum loop, and keeps its own burned-in captions (work in progress stays on the screen). A clip file that is missing is skipped.
+- Songs marked `"held": true` (the Bicycle Corps songs) show only lyric cards and portraits until the redrawn pictures are checked.
+- `checks.json`: audio and video length, silences, loudness (LUFS), black and frozen runs (the lyric cards are held still on purpose), per-song loudness, held pictures used (must be empty), and frame grabs at every join, chapter card, the opening and the end.
+- Tests: `python3 -m pytest -q -p no:cacheprovider tests/test_prerecord.py`.
