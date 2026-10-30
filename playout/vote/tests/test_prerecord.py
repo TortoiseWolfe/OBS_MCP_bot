@@ -71,6 +71,15 @@ def test_bounds_sum_to_song_length(tmp_path):
     assert all(a < b for a, b in zip(one["bounds"], one["bounds"][1:]))
 
 
+def test_no_comic_page_appears_when_comic_is_off_or_the_page_is_excluded(tmp_path):
+    story, cfg = make_story(tmp_path)
+    assert any(x["kind"] == "page" for x in pr.build_plan(story, cfg, 200.0)["songs"][0]["items"])
+    story["exclude_pages"] = [1]
+    assert not any(x["kind"] == "page" for s in pr.build_plan(story, cfg, 200.0)["songs"] for x in s["items"])
+    story["exclude_pages"], story["comic"] = [], False
+    assert not any(x["kind"] == "page" for s in pr.build_plan(story, cfg, 200.0)["songs"] for x in s["items"])
+
+
 def test_held_songs_show_no_card_or_page(tmp_path):
     story, cfg = make_story(tmp_path)
     plan = pr.build_plan(story, cfg, 200.0)

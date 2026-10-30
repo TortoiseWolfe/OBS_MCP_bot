@@ -1,4 +1,5 @@
 {
+ "comic": false,
  "audio": "~/band-wagon-tower/audio/takes/headline-story-set-t0.mp3",
  "playlist": "~/band-wagon-tower/playlist.json",
  "pages": "~/repos/hub/internship/showcase/band-wagon-comic/pages.json",

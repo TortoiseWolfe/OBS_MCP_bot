@@ -155,10 +155,11 @@ def pick_items(story, cfg, song, seconds, words=None):
     lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"], "video": video} for p in cards if "lyrics" in p.name]
     card = [{"kind": "card", "path": p, "w": WEIGHT["card"], "video": video} for p in cards if "lyrics" not in p.name and not held]
     pages = []
-    if song.get("comic_track") and not held:
+    if song.get("comic_track") and not held and story.get("comic", True):  # "comic": false = the no-comic film
         data = json.loads(ex(story["pages"]).read_text())["pages"]
+        skip = set(story.get("exclude_pages", []))  # pages Jonathan has not approved (3, 4 and 23 are held)
         pages = [{"kind": "page", "path": ex(story["pages_dir"]) / f"page{p['page']:02d}.png", "w": WEIGHT["page"]}
-                 for p in data if p.get("track") == song["comic_track"]]
+                 for p in data if p.get("track") == song["comic_track"] and p["page"] not in skip]
         pages = [x for x in pages if x["path"].is_file()]
     clips = []  # making-of clips from NX-01 (turntables, sheets beside the model, fit rounds); a missing file is skipped
     for name in song.get("clips", []):

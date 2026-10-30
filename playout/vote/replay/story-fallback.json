@@ -216,5 +216,11 @@
       }
     }
   ],
-  "visuals": "~/band-wagon-tower/visuals/2026-10-29"
+  "visuals": "~/band-wagon-tower/visuals/2026-10-29",
+  "exclude_pages": [
+    3,
+    4,
+    23
+  ],
+  "comic": false
 }
