@@ -25,6 +25,7 @@ from . import catalog, frames, layout, sound
 
 SPARSE_INK, MIN_INK = 52000, 3000
 OUT = Path.home() / "clawd-twitch" / "air" / "review"
+FADE_FRACTION = 0.8   # a frame whose brightest text is under this share of the segment's brightest is a fade, not a slide
 VERSION = 4
 _SECTION = re.compile(r"section\s*(\d+)\s*of\s*(\d+)", re.I)
 _DATE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
@@ -98,6 +99,7 @@ def review_segment(seg_path, kind, outdir, registered_sections=None, script_titl
     # A content slide's title band changes only when the slide changes; bullets appear below it. So one frame per
     # slide is read: the one with the most bright (text) pixels, which is the slide at its fullest.
     held, held_ink, last_band, held_t, scene_t0 = None, -1, None, 0.0, 0.0
+    peak_max = 0.0
     for t, fr, changed in frames.iter_frames(seg_path, w, h, max_gap=2.0 if kind == "content" else 10.0):
         if kind != "content":
             if changed or held is None:
@@ -116,6 +118,12 @@ def review_segment(seg_path, kind, outdir, registered_sections=None, script_titl
         last_band = band
         ink = int((gray[90:1000, :] > 120).sum())
         inks.append((t, ink))
+        # A slide fading out still has all its text but dim: never judge such a frame (its contrast reads low).
+        # Peak brightness of the text zone is compared with the brightest seen so far in this segment.
+        peak = float(np.percentile(gray[90:1000, :], 99.5))
+        peak_max = max(peak_max, peak)
+        if peak < FADE_FRACTION * peak_max:
+            continue
         if ink > held_ink:
             held, held_ink, held_t = fr.copy(), ink, t
     if kind == "content" and held is not None:
