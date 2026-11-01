@@ -25,7 +25,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bwvote import slideshow  # noqa: E402
+from bwvote import covers, slideshow  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 W, H, BAND = 1280, 720, 88  # the band is tall enough that its text ends 36+ px above the frame's bottom edge (EBU R95 graphics-safe margin, 5% of 720)
@@ -61,6 +61,8 @@ def probe_seconds(path):
 
 def member_pool(story, singers):
     """Portraits and design references: the song's singers first, then the rest of the band, each picture once."""
+    if story.get("covers_only") or not story.get("portraits"):  # the covers-only film shows no portraits or design references
+        return []
     d = ex(story["portraits"])
     seen, out = set(), []
     for name in list(singers) + MEMBERS:
@@ -150,6 +152,10 @@ def fit_items(items, D, first_song, last_song, J, F):
 def pick_items(story, cfg, song, seconds, words=None):
     """The song's screens in showing order, each {kind, path, w, words}; art may stay up no longer than UNIT_MAX per weight unit. Text screens are not trimmed to fit: see fit_items."""
     words = words or {}
+    if story.get("covers_only"):  # "covers_only": true = the song's one original cover from song-covers.json (else the show cover); no cards, pages, portraits or clips
+        cover = covers.cover_for({"id": song["id"]}, covers.load(cfg.get("song_covers", "")), cfg["cover"])
+        item = {"kind": "card", "path": cover, "w": WEIGHT["card"], "video": False, "words": 0}
+        return [item], [], None
     held = bool(song.get("held"))
     cards, video = video_cards([Path(p) for p in slideshow.track_cards(cfg, {"id": song["id"]})], story.get("video_cards"))
     lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"], "video": video} for p in cards if "lyrics" in p.name]
@@ -250,7 +256,7 @@ def build_plan(story, cfg, total):
             x["span"] = (b - prev) + F
             prev = b
         songs.append({**s, "end": end, "items": screens, "bounds": bounds, "dropped": [str(x["path"]) for x in dropped]})
-    return {"total": total, "join": J, "fade": F, "songs": songs, "opening": story["opening"], "ending": story["ending"]}
+    return {"total": total, "join": J, "fade": F, "songs": songs, "opening": story["opening"], "ending": story["ending"], "cbr_kbps": story.get("cbr_kbps")}
 
 
 def plan_json(plan):
@@ -487,9 +493,12 @@ def _init(plan_file, font):
 def render_chunk(job):
     t0, seconds, out = job
     r = _R["r"]
+    kbps = r.plan.get("cbr_kbps")
+    rate = (["-b:v", f"{kbps}k", "-minrate", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k", "-x264-params", "nal-hrd=cbr:force-cfr=1"]  # constant bitrate, as the live stream's 1500k
+            if kbps else ["-crf", "22", "-maxrate", "2000k", "-bufsize", "4000k"])
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main", "-pix_fmt", "yuv420p", "-crf", "22",
-           "-maxrate", "2000k", "-bufsize", "4000k", "-g", str(FPS * 2), "-keyint_min", str(FPS * 2), "-sc_threshold", "0",
+           "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main", "-pix_fmt", "yuv420p", *rate,
+           "-g", str(FPS * 2), "-keyint_min", str(FPS * 2), "-sc_threshold", "0",
            "-threads", "2", str(out)]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for i in range(round(seconds * FPS)):
