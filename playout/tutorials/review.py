@@ -25,7 +25,7 @@ from . import catalog, frames, layout, sound
 
 SPARSE_INK, MIN_INK = 52000, 3000
 OUT = Path.home() / "clawd-twitch" / "air" / "review"
-VERSION = 3
+VERSION = 4
 _SECTION = re.compile(r"section\s*(\d+)\s*of\s*(\d+)", re.I)
 _DATE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
 
@@ -98,7 +98,7 @@ def review_segment(seg_path, kind, outdir, registered_sections=None, script_titl
     # A content slide's title band changes only when the slide changes; bullets appear below it. So one frame per
     # slide is read: the one with the most bright (text) pixels, which is the slide at its fullest.
     held, held_ink, last_band, held_t, scene_t0 = None, -1, None, 0.0, 0.0
-    for t, fr, changed in frames.iter_frames(seg_path, w, h):
+    for t, fr, changed in frames.iter_frames(seg_path, w, h, max_gap=2.0 if kind == "content" else 10.0):
         if kind != "content":
             if changed or held is None:
                 held = True
@@ -239,9 +239,9 @@ def review_episode(ep, root=OUT, force=False):
 
 
 def _work(args):
-    ep, force = args
+    ep, force, root = args
     try:
-        r = review_episode(ep, force=force)
+        r = review_episode(ep, root=root, force=force)
         return ep["episode"], r["verdict"], r["blockers"], r["review_seconds"]
     except Exception as e:  # noqa: BLE001
         return ep["episode"], "ERROR", str(e), 0
@@ -295,12 +295,20 @@ def main():
     ap.add_argument("--summary", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--segments-root", help="read each episode's segments from <root>/<series>/<episode>/ instead of renders/")
+    ap.add_argument("--out", help="write findings under this folder instead of air/review")
     a = ap.parse_args()
-    OUT.mkdir(parents=True, exist_ok=True)
+    out = Path(a.out) if a.out else OUT
+    out.mkdir(parents=True, exist_ok=True)
     if a.summary:
-        print(summarize())
+        print(summarize(out))
         return
     eps = catalog.episodes()
+    if a.segments_root:
+        for e in eps:
+            folder = Path(a.segments_root) / e["series"] / e["episode"]
+            if folder.exists():
+                e["segments"] = {k: (str(p) if (p := catalog._newest(folder, k)) else None) for k in catalog.KINDS}
     if a.episode:
         eps = [e for e in eps if e["episode"] == a.episode]
     if a.series:
@@ -309,11 +317,11 @@ def main():
         ap.error("pick --all, --series or --episode")
     t0 = time.time()
     with Pool(a.workers) as pool:
-        for i, r in enumerate(pool.imap_unordered(_work, [(e, a.force) for e in eps]), 1):
+        for i, r in enumerate(pool.imap_unordered(_work, [(e, a.force, out) for e in eps]), 1):
             print(f"[{i}/{len(eps)} {time.time() - t0:.0f}s] {r}", flush=True)
             if i % 10 == 0:
-                summarize()
-    print(summarize())
+                summarize(out)
+    print(summarize(out))
 
 
 if __name__ == "__main__":

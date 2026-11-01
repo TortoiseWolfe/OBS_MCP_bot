@@ -18,6 +18,7 @@ FOOTER_Y = 1020                              # footer band: ScriptHammer.com
 PANEL_CLIP_PX = 22                           # a code line ending this close to the panel border is cut by it
 GAP_FRAC = 0.16                              # a pixel gap this wide (x line height) is a space between words
 EDGE_PX = 6                                  # text this close to the frame edge is cut by the frame
+INLINE_CHIP_MAX, INLINE_BG_MIN, INLINE_INK_MIN = 22, 26, 60   # chip colour, slide colour, ink level (luminance)
 BODY_FLOOR = 1000                            # body text whose box ends below this runs into the footer band
 
 OLD_VERSION = re.compile(r"\b(?:Next(?:\.js)?\s*(?:v)?1[3-5]\b|Node(?:\.js)?\s*(?:v)?(?:18|20)\b|React\s*(?:v)?18\b)", re.I)
@@ -68,7 +69,7 @@ def find_panel(gray, minrun=250, thr=25):
     """Code panel = two long vertical edges. Returns (left_x, right_x) or None."""
     d = np.abs(np.diff(gray[80:1000].astype(np.int16), axis=1)) > thr
     xs = []
-    for x in range(900, 1900):
+    for x in range(780, 1900):
         col = d[:, x]
         # longest run of True
         padded = np.concatenate(([0], col.view(np.int8), [0]))
@@ -77,7 +78,7 @@ def find_panel(gray, minrun=250, thr=25):
             xs.append(x)
     if not xs:
         return None
-    left = [x for x in xs if 1000 <= x <= 1300]
+    left = [x for x in xs if 800 <= x <= 1300]  # the fixed renderer allows a code column up to 56% of the width
     right = [x for x in xs if 1840 <= x <= 1880]
     if left and right:
         return min(left), max(right)
@@ -176,6 +177,31 @@ def check_clipping(frame, lines, panel=None):
     return out
 
 
+def check_inline_clip(gray, lines, panel=None):
+    """An inline-code chip (dark box inside a bullet) whose text runs to the chip's right edge.
+
+    Looks near each body line's right end for a step from the chip colour (dark) to the slide colour (lighter). Ink in
+    the three columns just left of that step means the chip is cut there, not padded."""
+    out = []
+    for ln in lines:
+        if is_chrome(ln) or is_gutter(ln) or (panel is not None and ln.x0 >= panel[0]) or ln.w < 40:
+            continue
+        ya, yb = max(ln.y0, 0), min(ln.y1, gray.shape[0])
+        xa, xb = max(ln.x1 - 14, 8), min(ln.x1 + 100, gray.shape[1] - 5)   # OCR often drops the cut-off tail
+        if yb - ya < 8 or xb <= xa:
+            continue
+        band = gray[ya:yb].astype(np.int16)
+        prof = np.percentile(band, 20, axis=0)
+        for x in range(xa, xb):
+            if prof[x - 4:x - 1].max() < INLINE_CHIP_MAX and prof[x + 1:x + 4].min() >= INLINE_BG_MIN:
+                # ink on the chip's last columns, and nothing bright just outside it (a comma or dash after a whole chip is not a cut)
+                if band[:, x - 2:x + 1].max() > INLINE_INK_MIN and band[:, x + 2:x + 6].max() < INLINE_INK_MIN:
+                    out.append(dict(check="clip-inline", severity="BLOCKER", box=[ln.x0, ln.y0, ln.x1, ln.y1],
+                                    detail=f"inline code runs to the edge of its box: ...{ln.text[-40:]!r}"))
+                    break
+    return out
+
+
 def check_margins(lines):
     """Safe-margin breaches (UPDATE; a template matter, reported once per layout)."""
     out = []
@@ -250,6 +276,7 @@ def analyze(frame, lines, kind="content"):
     panel = find_panel(gray)
     found = []
     found += check_clipping(frame, lines, panel)
+    found += check_inline_clip(gray, lines, panel)
     found += check_margins(lines)
     found += check_single_word(gray, lines, panel)
     ws, feats = check_whitespace(lines, panel)
