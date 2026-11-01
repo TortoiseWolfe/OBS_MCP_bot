@@ -3,6 +3,7 @@
 
   python3 prerecord.py render --out DIR [--start S --seconds N] [--workers 6]   # film.mp4, plan.json, checks.json, frames/
   python3 prerecord.py plan   --out DIR                                          # plan.json only, nothing rendered
+  python3 prerecord.py gaps   --out DIR                                          # the sound alone: any gap of 0.15 s or more inside a song fails
 
 The sound is the finished story-set mp3 (8 s crossfades already in it). The picture is built from the clock: frame_at(t) is a pure
 function of the film time, so the film is cut into 30 s chunks, each rendered by its own worker (nice 19) and joined without re-encoding.
@@ -25,7 +26,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bwvote import slideshow  # noqa: E402
+from bwvote import covers, gaps as gapmod, slideshow  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 W, H, BAND = 1280, 720, 88  # the band is tall enough that its text ends 36+ px above the frame's bottom edge (EBU R95 graphics-safe margin, 5% of 720)
@@ -61,6 +62,8 @@ def probe_seconds(path):
 
 def member_pool(story, singers):
     """Portraits and design references: the song's singers first, then the rest of the band, each picture once."""
+    if story.get("covers_only") or not story.get("portraits"):  # the covers-only film shows no portraits or design references
+        return []
     d = ex(story["portraits"])
     seen, out = set(), []
     for name in list(singers) + MEMBERS:
@@ -150,6 +153,10 @@ def fit_items(items, D, first_song, last_song, J, F):
 def pick_items(story, cfg, song, seconds, words=None):
     """The song's screens in showing order, each {kind, path, w, words}; art may stay up no longer than UNIT_MAX per weight unit. Text screens are not trimmed to fit: see fit_items."""
     words = words or {}
+    if story.get("covers_only"):  # "covers_only": true = the song's one original cover from song-covers.json (else the show cover); no cards, pages, portraits or clips
+        cover = covers.cover_for({"id": song["id"]}, covers.load(cfg.get("song_covers", "")), cfg["cover"])
+        item = {"kind": "card", "path": cover, "w": WEIGHT["card"], "video": False, "words": 0}
+        return [item], [], None
     held = bool(song.get("held"))
     cards, video = video_cards([Path(p) for p in slideshow.track_cards(cfg, {"id": song["id"]})], story.get("video_cards"))
     lyrics = [{"kind": "lyrics", "path": p, "w": WEIGHT["lyrics"], "video": video} for p in cards if "lyrics" in p.name]
@@ -250,7 +257,7 @@ def build_plan(story, cfg, total):
             x["span"] = (b - prev) + F
             prev = b
         songs.append({**s, "end": end, "items": screens, "bounds": bounds, "dropped": [str(x["path"]) for x in dropped]})
-    return {"total": total, "join": J, "fade": F, "songs": songs, "opening": story["opening"], "ending": story["ending"]}
+    return {"total": total, "join": J, "fade": F, "songs": songs, "opening": story["opening"], "ending": story["ending"], "cbr_kbps": story.get("cbr_kbps")}
 
 
 def plan_json(plan):
@@ -487,9 +494,12 @@ def _init(plan_file, font):
 def render_chunk(job):
     t0, seconds, out = job
     r = _R["r"]
+    kbps = r.plan.get("cbr_kbps")
+    rate = (["-b:v", f"{kbps}k", "-minrate", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k", "-x264-params", "nal-hrd=cbr:force-cfr=1"]  # constant bitrate, as the live stream's 1500k
+            if kbps else ["-crf", "22", "-maxrate", "2000k", "-bufsize", "4000k"])
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main", "-pix_fmt", "yuv420p", "-crf", "22",
-           "-maxrate", "2000k", "-bufsize", "4000k", "-g", str(FPS * 2), "-keyint_min", str(FPS * 2), "-sc_threshold", "0",
+           "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main", "-pix_fmt", "yuv420p", *rate,
+           "-g", str(FPS * 2), "-keyint_min", str(FPS * 2), "-sc_threshold", "0",
            "-threads", "2", str(out)]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for i in range(round(seconds * FPS)):
@@ -603,6 +613,12 @@ def run_checks(film, plan, t0, seconds, out):
     chk["run_time_ok"] = abs(v - seconds) <= 0.5
     sil = ff("-i", str(film), "-vn", "-af", "silencedetect=n=-50dB:d=2", "-f", "null", "-")
     chk["silences"] = len([m for m in re.findall(r"silence_start: ([\d.]+)", sil) if float(m) < seconds - 6.0])  # the song's own quiet tail under the closing fade is by design
+    # every gap of 0.15 s or more under -45 dB inside a song fails the build (the 2 s filter above missed 83 of them in film-a7)
+    found, ftotal = gapmod.detect(film)
+    found = gapmod.inside(found, ftotal)
+    chk["gaps_filter"] = f"silencedetect n={gapmod.THRESH_DB:g}dB d={gapmod.MIN_GAP}"
+    chk["gaps_inside_songs"] = [[round(s + t0, 2), round(e - s, 2)] for s, e in found]
+    chk["gaps_ok"] = not found
     lu = ff("-i", str(film), "-vn", "-af", "ebur128=peak=true", "-f", "null", "-")
     m = re.findall(r"I:\s+(-?[\d.]+) LUFS", lu)
     chk["loudness_lufs"] = float(m[-1]) if m else None
@@ -673,6 +689,7 @@ def run_checks(film, plan, t0, seconds, out):
     chk["screens_in_first_15s"] = [[r["name"], r["clear"]] for r in sorted(first, key=lambda r: r["first"])]
     chk.update(still_windows(film, rows, t0, seconds))
     chk["readable"] = not (short or fades or chk["unsteady_clear_windows"] or not chk["opens_on_one_clean_screen"])
+    chk["passes"] = bool(chk["readable"] and chk["gaps_ok"])
     return chk
 
 
@@ -716,7 +733,7 @@ def still_windows(film, rows, t0, seconds):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=["plan", "measure", "render", "check"])
+    ap.add_argument("cmd", choices=["plan", "measure", "render", "check", "gaps"])
     ap.add_argument("--story", default=str(HERE / "replay" / "story.json"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--start", type=float, default=0.0)
@@ -741,13 +758,18 @@ def main(argv=None):
         (out / "screens.json").write_text(json.dumps(rows, indent=1))
         print(json.dumps({"screens": len(rows), "screens_too_short": short, "transitions_too_short": fades}, indent=1))
         return 0 if not (short or fades) else 1
+    if args.cmd == "gaps":  # the sound alone, before any render: every gap of 0.15 s or more inside a song fails
+        found, gt = gapmod.detect(ex(story["audio"]))
+        found = gapmod.inside(found, gt)
+        print(json.dumps({"gaps_inside_songs": [[round(s, 2), round(e - s, 2)] for s, e in found], "ok": not found}, indent=1))
+        return 0 if not found else 1
     seconds = args.seconds or (total - args.start)
     seconds = min(seconds, total - args.start)
     if args.cmd == "check":  # the checks again on a film already rendered in out/
         chk = run_checks(out / "film.mp4", plan, args.start, seconds, out)
         (out / "checks.json").write_text(json.dumps(chk, indent=1))
         print(json.dumps(chk, indent=1))
-        return 0 if chk["readable"] else 1
+        return 0 if chk["passes"] else 1
     jobs, t = [], args.start
     while t < args.start + seconds - 1e-6:
         n = min(CHUNK, args.start + seconds - t)
@@ -764,7 +786,7 @@ def main(argv=None):
     chk = run_checks(film, plan, args.start, seconds, out)
     (out / "checks.json").write_text(json.dumps(chk, indent=1))
     print(json.dumps(chk, indent=1))
-    return 0 if chk["readable"] else 1  # a film with a screen too short to read, or a dissolve too brief, fails the build
+    return 0 if chk["passes"] else 1  # a film with a screen too short to read, a dissolve too brief, or a gap in a song fails the build
 
 
 if __name__ == "__main__":
