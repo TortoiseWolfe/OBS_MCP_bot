@@ -30,6 +30,10 @@ CHUNK = 1 << 16
 # Every item starts at least 1 s in. The files begin with a negative decode time (B-frames, audio priming); at offset 0 the muxer
 # shifts the first item up by that amount and no later one, which leaves a two-frame overlap at every join.
 START_OFFSET = 1.0
+# A receiver that ends is started again after these waits (seconds). The first start can land before the relay's nginx is up
+# (Docker accepts the port, then resets the connection for about half a second), which ended the first go-live on 2 Nov.
+RETRY_WAITS = (2, 5, 10, 20, 30, 30)
+GOOD_RUN_SECONDS = 30   # a receiver that lived this long was a good run: the failure count starts over
 
 
 def load_list(path, last_good=None):
@@ -85,11 +89,20 @@ def write_status(path, **kw):
     os.replace(tmp, path)
 
 
-def run(list_path, out, fmt="flv", status=None, max_items=None, log=sys.stderr, stop=None, realtime=True):
+def start_receiver(cmd, recv_log):
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=recv_log)
+
+
+def run(list_path, out, fmt="flv", status=None, max_items=None, log=sys.stderr, stop=None, realtime=True,
+        receiver_fn=receiver_cmd, retry_waits=RETRY_WAITS):
+    """Plays the list into one receiver. A receiver that ends (the relay was not ready, Twitch dropped us) is started again after
+    a wait taken from `retry_waits`; the item in hand restarts from its top and the clock offset starts over, because a new
+    connection is a new stream. Only a receiver that keeps dying with no good run in between ends the rotation (return 3)."""
     stop = stop or threading.Event()
     status = status or str(Path(list_path).with_name("status.json"))
     recv_log = open(Path(status).with_name("receiver.log"), "ab")
-    recv = subprocess.Popen(receiver_cmd(out, fmt, realtime), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=recv_log)
+    recv = start_receiver(receiver_fn(out, fmt, realtime), recv_log)
+    recv_since, failures = time.time(), 0
     items, last, offset, played, t0 = [], None, START_OFFSET, 0, time.time()
     try:
         while not stop.is_set() and (max_items is None or played < max_items):
@@ -104,6 +117,7 @@ def run(list_path, out, fmt="flv", status=None, max_items=None, log=sys.stderr, 
             write_status(status, now=item["path"], title=item.get("title"), next=after["path"] if after else None,
                          items=len(items), played=played, offset_seconds=round(offset, 3), run_seconds=round(time.time() - t0))
             feeder = subprocess.Popen(feeder_cmd(item["path"], offset), stdout=subprocess.PIPE)
+            receiver_died = False
             while True:
                 buf = feeder.stdout.read(CHUNK)
                 if not buf:
@@ -114,10 +128,24 @@ def run(list_path, out, fmt="flv", status=None, max_items=None, log=sys.stderr, 
                 try:
                     recv.stdin.write(buf)
                 except (BrokenPipeError, OSError):
-                    log.write("the receiver ended; stopping\n")
+                    receiver_died = True
                     feeder.kill()
+                    break
+            feeder.wait()
+            if receiver_died:
+                recv.wait(timeout=60)
+                failures = 0 if time.time() - recv_since >= GOOD_RUN_SECONDS else failures + 1
+                if failures > len(retry_waits):
+                    log.write(f"the receiver ended {failures} times in a row; stopping\n")
                     return 3
-            if feeder.wait() != 0:
+                wait = retry_waits[failures - 1] if failures else retry_waits[0]
+                log.write(f"the receiver ended (exit {recv.returncode}); starting it again in {wait} s\n")
+                if stop.wait(wait):
+                    break
+                recv = start_receiver(receiver_fn(out, fmt, realtime), recv_log)
+                recv_since, offset = time.time(), START_OFFSET
+                continue                  # the same item again: `last` has not moved
+            if feeder.returncode != 0 and not stop.is_set():
                 log.write(f"feeder failed on {item['path']}; moving on\n")
             offset += secs
             last, played = item["path"], played + 1
@@ -126,7 +154,10 @@ def run(list_path, out, fmt="flv", status=None, max_items=None, log=sys.stderr, 
             recv.stdin.close()
         except OSError:
             pass
-        recv.wait(timeout=60)
+        try:
+            recv.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            recv.kill()
     return 0
 
 

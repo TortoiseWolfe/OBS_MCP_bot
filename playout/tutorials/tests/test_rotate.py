@@ -87,3 +87,34 @@ def test_airproof_windows_are_kbps():
     from playout.tutorials import airproof
     pk = [(float(t), 12500, False) for t in range(0, 30)]      # 12500 bytes a second = 100 kbps
     assert airproof.windows(pk) == [100.0, 100.0]
+
+
+def test_receiver_that_ends_at_first_is_started_again(tmp_path):
+    """The 2 Nov go-live: the first receiver was reset by a relay that was not ready. It must be started again, and the item replayed."""
+    a = tmp_path / "a.mp4"
+    clip(a, 2, 440)
+    lst = tmp_path / "list.json"
+    lst.write_text(json.dumps({"items": items(str(a))}))
+    out, mark = tmp_path / "out.ts", tmp_path / "tried"
+    code = ("import os,sys\nm,o=sys.argv[1:3]\n"
+            "if not os.path.exists(m):\n open(m,'w').close(); sys.exit(1)\n"
+            "open(o,'wb').write(sys.stdin.buffer.read())\n")
+    fn = lambda *_: [sys.executable, "-c", code, str(mark), str(out)]  # noqa: E731
+    log = open(tmp_path / "log.txt", "w+")
+    assert rotate.run(str(lst), "x", max_items=1, receiver_fn=fn, retry_waits=(0.1, 0.1), log=log) == 0
+    log.seek(0)
+    assert "starting it again" in log.read()
+    assert out.stat().st_size > 10000                      # the second receiver got the whole item
+    assert json.loads((tmp_path / "status.json").read_text())["played"] == 0
+
+
+def test_receiver_that_never_works_ends_the_rotation(tmp_path):
+    a = tmp_path / "a.mp4"
+    clip(a, 2, 440)
+    lst = tmp_path / "list.json"
+    lst.write_text(json.dumps({"items": items(str(a))}))
+    fn = lambda *_: [sys.executable, "-c", "import sys; sys.exit(1)"]  # noqa: E731
+    log = open(tmp_path / "log.txt", "w+")
+    assert rotate.run(str(lst), "x", receiver_fn=fn, retry_waits=(0.05, 0.05), log=log) == 3
+    log.seek(0)
+    assert "in a row; stopping" in log.read()
