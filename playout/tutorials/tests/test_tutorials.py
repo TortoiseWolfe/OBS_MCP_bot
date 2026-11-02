@@ -205,3 +205,57 @@ def test_catalog_takes_the_newest_render_of_a_script(tmp_path):
     (tmp_path / "episodes.json").write_text(json.dumps(reg))
     eps = catalog.episodes(tmp_path)
     assert len(eps) == 1 and eps[0]["registry_id"] == "new" and eps[0]["segments"]["content"].endswith("content-20260301.mp4")
+
+
+def test_iter_frames_hands_over_the_settled_picture_not_the_fade(tmp_path):
+    """A text slide that fades in over 3 s is sampled once it has stopped moving, not while half dim."""
+    import shutil
+    import subprocess
+
+    from playout.tutorials import frames
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    clip = tmp_path / "fade.mp4"
+    # 2 s of dark, then a bright box fades in over 3 s and holds 5 s
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x141414:s=320x180:r=10:d=10",
+                    "-vf", "drawbox=x=40:y=40:w=240:h=100:color=white@1:t=fill:enable='gte(t,2)',"
+                           "fade=t=in:st=2:d=3:alpha=0", "-pix_fmt", "yuv420p", str(clip)], check=True)
+    every = [(t, float(np.asarray(f).mean())) for t, f, _ in frames.iter_frames(str(clip), 320, 180, step=1.0, change=0.0, settle=0.0)]
+    dark, full = min(m for _, m in every), max(m for _, m in every)
+    got = [(t, float(np.asarray(f).mean())) for t, f, changed in frames.iter_frames(str(clip), 320, 180, step=1.0, change=1.0) if changed]
+    assert any(0.1 * (full - dark) < m - dark < 0.9 * (full - dark) for _, m in every), "test clip has no fade to skip"
+    assert got and all(m - dark < 0.05 * (full - dark) or m - dark > 0.95 * (full - dark) for _, m in got), got
+
+
+@pytest.mark.parametrize("left", [852, 960, 1100])
+def test_find_panel_sees_a_wide_code_column(left):
+    """The fixed renderer's code panel can start as far left as 56% of the width; the panel finder must still see it."""
+    im, d = canvas()
+    d.rounded_rectangle([left, 180, 1860, 650], radius=12, outline=(150, 110, 60), width=2)
+    panel = layout.find_panel(np.asarray(im.convert("L")))
+    assert panel is not None and abs(panel[0] - left) <= 2 and abs(panel[1] - 1860) <= 2
+
+
+def _chip_frame(chip_x1, ink_to_edge, comma_after=False):
+    """Slide-coloured picture with a dark inline-code chip at x 90..chip_x1 and glyph ink inside it."""
+    g = np.full((1080, 1920), 32, np.uint8)
+    g[446:488, 90:chip_x1] = 16
+    g[460:476, 120:300] = 200                                  # code text inside the chip
+    if ink_to_edge:
+        g[460:476, chip_x1 - 6:chip_x1] = 200                  # a glyph cut by the chip's right edge
+    if comma_after:
+        g[466:480, chip_x1 + 5:chip_x1 + 9] = 200              # punctuation right after a whole chip
+    return g
+
+
+def test_inline_code_cut_at_the_chip_edge_is_a_blocker():
+    g = _chip_frame(883, ink_to_edge=True)
+    found = layout.check_inline_clip(g, [layout.Line(98, 446, 830, 488, "enrolledCourses")])
+    assert [f["check"] for f in found] == ["clip-inline"] and found[0]["severity"] == "BLOCKER"
+
+
+def test_padded_chip_and_punctuation_after_it_are_fine():
+    for comma in (False, True):
+        g = _chip_frame(883, ink_to_edge=False, comma_after=comma)
+        assert layout.check_inline_clip(g, [layout.Line(98, 446, 830, 488, "enrolledCourses")]) == []
