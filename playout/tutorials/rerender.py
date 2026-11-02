@@ -134,6 +134,8 @@ def main():
     import parse_episode as pe  # noqa: PLC0415 - path set just above
 
     old_dir = CLAWD / "renders" / a.series / a.episode
+    if not old_dir.exists():  # some episodes sit straight under renders/ (the catalog calls their series the episode name)
+        old_dir = CLAWD / "renders" / a.episode
     old = newest(old_dir, "content")
     episode = pe.parse_episode((CLAWD / "episodes" / f"{a.episode}.md").read_text())
     dest_dir = Path(a.out) / a.series / a.episode
