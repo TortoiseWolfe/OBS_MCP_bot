@@ -16,8 +16,8 @@ RUN="$AIR/relay-run"; mkdir -p "$RUN"; export RELAY_CONF="$RUN/nginx.conf" RELAY
 compose() { timeout 120 docker compose -p "$PROJ" -f "$VOTE/relay/compose.yml" "$@"; }
 python3 "$VOTE/make-relay-conf.py" "$KEYF" "$BASE" "$RELAY_CONF" > /dev/null || { echo "REFUSED: could not write the relay config"; exit 5; }
 compose up -d --build > "$RUN/compose-up.log" 2>&1 || { echo "REFUSED: the relay did not start (see $RUN/compose-up.log)"; compose down > /dev/null 2>&1; exit 6; }
-up=0; for _ in $(seq 1 60); do (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null && { up=1; break; }; sleep 0.5; done
-[ "$up" = 1 ] || { echo "REFUSED: the relay is not listening on 127.0.0.1:$PORT"; compose down > /dev/null 2>&1; exit 6; }
+# a real RTMP handshake, not just an open port: Docker opens the port before nginx is listening and resets early connections
+python3 "$HERE/relay_ready.py" "$PORT" 40 || { echo "REFUSED: the relay did not answer an RTMP handshake on 127.0.0.1:$PORT"; compose down > /dev/null 2>&1; exit 6; }
 setsid nohup python3 "$HERE/rotate.py" "$AIR/list.json" --out "rtmp://127.0.0.1:$PORT/relay/air" --status "$AIR/status.json" > /dev/null 2> "$AIR/rotate.log" &
 RPID=$!; echo $RPID > "$AIR/rotate.pid"
 setsid nohup bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 5; done; shift; exec "$@"' _ "$RPID" timeout 120 docker compose -p "$PROJ" -f "$VOTE/relay/compose.yml" down > /dev/null 2>&1 &
