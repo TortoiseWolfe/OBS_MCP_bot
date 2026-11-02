@@ -1,0 +1,21 @@
+# The relay for film airings. Always run with a project name: docker compose -p bw-air-relay -f compose.yml ...
+services:
+  relay:
+    build: .
+    image: bw-air-relay:1
+    ports:
+      - "127.0.0.1:${RELAY_PORT:-19350}:1935"
+    volumes:
+      - "${RELAY_CONF:?path of the mode-600 nginx.conf made by make-relay-conf.py}:/etc/nginx/relay/nginx.conf:ro"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 128m
+    cpus: 0.5
+    read_only: true
+    tmpfs:
+      - /var/log/nginx
+      - /var/lib/nginx
+      - /tmp
+    logging:
+      driver: none
+    restart: "no"
