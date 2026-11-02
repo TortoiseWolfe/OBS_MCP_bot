@@ -259,3 +259,12 @@ def test_padded_chip_and_punctuation_after_it_are_fine():
     for comma in (False, True):
         g = _chip_frame(883, ink_to_edge=False, comma_after=comma)
         assert layout.check_inline_clip(g, [layout.Line(98, 446, 830, 488, "enrolledCourses")]) == []
+
+
+def test_encode_air_parse_duration_and_graph():
+    from playout.tutorials import encode_air
+    assert encode_air.parse_duration("10.000000,\n") == 10.0
+    g = encode_air.filter_graph([10.0, 5.0, 600.5, 10.0], 1080)
+    assert "concat=n=4:v=1:a=1" in g and "atrim=0:600.50000" in g and g.count("fps=30") == 4
+    assert "volume" not in g and "volume=-0.80dB" in encode_air.filter_graph([1.0], 1080, -0.8)
+    assert "-g" in encode_air.video_args(2300) and "60" in encode_air.video_args(2300)
