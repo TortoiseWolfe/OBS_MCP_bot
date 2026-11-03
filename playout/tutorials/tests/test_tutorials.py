@@ -268,3 +268,18 @@ def test_encode_air_parse_duration_and_graph():
     assert "concat=n=4:v=1:a=1" in g and "atrim=0:600.50000" in g and g.count("fps=30") == 4
     assert "volume" not in g and "volume=-0.80dB" in encode_air.filter_graph([1.0], 1080, -0.8)
     assert "-g" in encode_air.video_args(2300) and "60" in encode_air.video_args(2300)
+
+
+def test_band_segment_cycle_window_and_box():
+    from playout.tutorials import band_segment as bs
+    files = bs.cycle_files(100.0, "t", "s", 8.0)  # 28 s block: 4 blocks cover 100 s
+    assert files == ["t", "t", "s"] * 4
+    assert bs.window_seconds(1.4, 144.0) == pytest.approx(142.6)  # whole frames
+    assert abs(bs.window_seconds(0.0, 1.0 / 30 * 7.9) - 7 / 30) < 1e-9
+    assert bs.concat_list(["a.mp4"]) == "file 'a.mp4'\n"
+    assert bs.box_width("Chorus", "The Night Watch") > bs.box_width("Brass", "Static Snow")
+    g = bs.fit_filter("n.txt", "t.txt", 500)
+    assert "force_original_aspect_ratio=decrease" in g and "overlay=(W-w)/2:(H-h)/2" in g  # fitted, never stretched
+    assert "x=64" in g and "textfile=n.txt" in g
+    assert bs.BAND["Chorus"][0] == "Chorus"  # the on-screen name, though the file stem stays Verse
+    assert set(bs.BAND) == {"Brass", "Chops", "Crash", "Ivory", "Reed", "Chorus"}
