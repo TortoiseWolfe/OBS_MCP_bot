@@ -33,6 +33,8 @@ OPENCLAW = Path.home() / "repos" / "openclaw"
 FIXED_SRC = Path.home() / "repos" / ".worktrees" / "openclaw--tutorials-fix"
 BRAND = "ScriptHammer"
 LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
+# loudnorm leaves one audio packet with a 55 ms timestamp step; numbering by sample count gives continuous stamps
+RESTAMP = "asetpts=N/SR/TB"
 
 
 def intro_text(title, n_sections, duration_min):
@@ -72,7 +74,7 @@ def render_script(jobs):
 def concat_filter(n):
     """filter_complex joining n merged segments, then normalising the loudness of the whole lesson."""
     ins = "".join(f"[{i}:v][{i}:a]" for i in range(n))
-    return f"{ins}concat=n={n}:v=1:a=1[v][a_raw];[a_raw]{LOUDNORM}[a]"
+    return f"{ins}concat=n={n}:v=1:a=1[v][a_raw];[a_raw]{LOUDNORM},{RESTAMP}[a]"
 
 
 def sh(cmd, timeout):

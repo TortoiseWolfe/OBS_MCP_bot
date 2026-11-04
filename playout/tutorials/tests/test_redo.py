@@ -24,7 +24,7 @@ def test_render_script_skips_finished_files_and_names_each_composition():
 def test_concat_filter_joins_all_and_normalises_after():
     f = redo.concat_filter(3)
     assert f.startswith("[0:v][0:a][1:v][1:a][2:v][2:a]concat=n=3:v=1:a=1[v][a_raw];")
-    assert f.endswith("[a_raw]loudnorm=I=-16:TP=-1.5:LRA=11[a]")
+    assert f.endswith("[a_raw]loudnorm=I=-16:TP=-1.5:LRA=11,asetpts=N/SR/TB[a]")
 
 
 def test_section_props_use_the_real_timings():
