@@ -6,8 +6,13 @@ on screen. The sound is one public ScriptHammer band track, trimmed to the stret
 end and set to -16 LUFS (loudness) like the tutorials. The finished file is encoded the way the tutorials are: 1080p, constant
 2300 kbps, a keyframe every 2 s, AAC (Advanced Audio Coding) 48 kHz stereo. It is then checked with airproof and a silence scan.
 
+A second kind of segment, the song card, uses a public song's square card (title, track number and a lyric line are in the
+picture) instead of a member's clip: the card is fitted inside the safe margins with the same blurred fill behind it and pushes
+in very slowly (about 2 %, always inside the safe margins), under the song's no-silence stretch. Same encode, same checks.
+
 usage:
   python -m playout.tutorials.band_segment build MEMBER OUT.mp4 [--in-dir DIR] [--audio-dir DIR] [--work DIR]
+  python -m playout.tutorials.band_segment song SONG OUT.mp4 [--card-dir DIR] [--audio-dir DIR]
   python -m playout.tutorials.band_segment list
 """
 import argparse
@@ -39,6 +44,17 @@ BAND = {
     "Reed": ("Reed", "Reed", "n10", "Static Snow", 0.6, 146.8),
     "Chorus": ("Chorus", "Verse", "n05", "The Night Watch", 8.3, 121.4),
 }
+
+# song key -> (song title on the card, card file in --card-dir, public track id, start s, end s in the track file).
+# Chosen from the unused public songs as the darkest gap-free ones (share of energy above 3 kHz 4.3 to 4.7 %, against 5.3 to 6.2 %
+# for the others; each has its only silence in the last 3 s). Titles are the renamed ones from the showcase's build_tracks.py, and
+# the cards are the corrected ones from the showcase (the tower's own cards still print old titles).
+SONGS = {
+    "soundcheck": ("Soundcheck at Midnight", "bw-the-night-set-t3-soundcheck-at-midnight-card.jpg", "n03", 0.0, 145.0),
+    "warehouse": ("Warehouse Wagon", "bw-the-fusion-set-t2-warehouse-wagon-card.jpg", "fusion-2", 0.0, 147.5),
+    "ghosts": ("Seven Ghosts in the Wiring", "bw-the-night-set-t1-seven-ghosts-in-the-wiring-card.jpg", "n01", 0.0, 146.3),
+}
+CARD_START, CARD_END = 984, 1008  # card side in px: starts 48 px inside the frame edge, ends on the 36 px safe margin (H - 2 * 36)
 
 
 def frame_round(seconds):
@@ -82,6 +98,18 @@ def fit_filter(banner_name, banner_title, box_w, fps=FPS):
     )
 
 
+def song_filter(total, fps=FPS):
+    """A square card fitted inside the safe margins over its own blurred, darkened copy; the card grows from CARD_START to CARD_END
+    px a side over `total` seconds (an even size every frame; at 30 fps that is a step of 2 px about every 12 s, no shimmer)."""
+    side = f"2*trunc(({CARD_START}+({CARD_END}-{CARD_START})*min(n/{fps * total:.3f},1))/2)"
+    return (
+        f"[0:v]fps={fps},split=2[bg][fg];"
+        f"[bg]scale=192:108:force_original_aspect_ratio=increase,crop=192:108,gblur=sigma=3,scale={W}:{H}:flags=bicubic,eq=brightness=-0.3[b];"
+        f"[fg]scale=w='{side}':h='{side}':eval=frame:flags=lanczos,setsar=1[f];"
+        f"[b][f]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v0]"
+    )
+
+
 def _run(cmd, timeout):
     subprocess.run(cmd, check=True, timeout=timeout)
 
@@ -94,6 +122,26 @@ def make_part(src, out, seconds, name_file, title_file, box_w, still):
     cmd += ["-i", str(src), "-filter_complex", fit_filter(name_file, title_file, box_w), "-map", "[v]", "-an",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", str(FPS), "-g", "30", str(out)]
     _run(cmd, 1000)
+
+
+def mux(out, track, start, total, inputs, video, maps, kbps):
+    """Encode `inputs` (the picture input first, the track second) to the air format with the track's stretch set to -16 LUFS,
+    faded at each end. A second pass corrects the gain if the first lands more than 0.3 LU off. Returns the measured LUFS."""
+    gain = TARGET_LUFS - bed_section_lufs(track, start, total)
+
+    def encode(extra_gain):
+        af = (f"aresample=48000,aformat=channel_layouts=stereo,volume={gain + extra_gain:.3f}dB,alimiter=limit=0.89,"
+              f"afade=t=in:st=0:d={FADE_IN},afade=t=out:st={total - FADE_OUT:.3f}:d={FADE_OUT},apad,atrim=0:{total:.3f}")
+        cmd = ["nice", "-n", "19", "timeout", "3600", "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "error", "-threads", "6"]
+        cmd += inputs + video + maps + ["-af", af, "-t", f"{total:.3f}"]
+        cmd += video_args(kbps) + audio_args() + ["-movflags", "+faststart", str(out)]
+        _run(cmd, 3700)
+        return measure_lufs(out)
+
+    lufs = encode(0.0)
+    if abs(lufs - TARGET_LUFS) > 0.3:
+        lufs = encode(TARGET_LUFS - lufs)
+    return lufs
 
 
 def build(member, out, in_dir, audio_dir, work, kbps=2300):
@@ -109,24 +157,23 @@ def build(member, out, in_dir, audio_dir, work, kbps=2300):
     make_part(Path(in_dir) / f"{stem}-still.png", still, STILL_SECONDS, work / "name.txt", work / "title.txt", bw, True)
     total = window_seconds(start, end)
     (work / "list.txt").write_text(concat_list(cycle_files(total, turn, still, duration(turn))))
-    gain = TARGET_LUFS - bed_section_lufs(track, start, total)
-
-    def encode(extra_gain):
-        af = (f"aresample=48000,aformat=channel_layouts=stereo,volume={gain + extra_gain:.3f}dB,alimiter=limit=0.89,"
-              f"afade=t=in:st=0:d={FADE_IN},afade=t=out:st={total - FADE_OUT:.3f}:d={FADE_OUT},apad,atrim=0:{total:.3f}")
-        vf = f"fade=t=in:st=0:d={FADE_IN},fade=t=out:st={total - FADE_IN:.3f}:d={FADE_IN},format=yuv420p"
-        cmd = ["nice", "-n", "19", "timeout", "3600", "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "error", "-threads", "6",
-               "-f", "concat", "-safe", "0", "-i", str(work / "list.txt"), "-ss", f"{start:.3f}", "-t", f"{total:.3f}", "-i", str(track),
-               "-map", "0:v", "-map", "1:a", "-vf", vf, "-af", af, "-t", f"{total:.3f}"]
-        cmd += video_args(kbps) + audio_args() + ["-movflags", "+faststart", str(out)]
-        _run(cmd, 3700)
-        return measure_lufs(out)
-
-    lufs = encode(0.0)
-    if abs(lufs - TARGET_LUFS) > 0.3:
-        lufs = encode(TARGET_LUFS - lufs)
+    vf = f"fade=t=in:st=0:d={FADE_IN},fade=t=out:st={total - FADE_IN:.3f}:d={FADE_IN},format=yuv420p"
+    inputs = ["-f", "concat", "-safe", "0", "-i", str(work / "list.txt"), "-ss", f"{start:.3f}", "-t", f"{total:.3f}", "-i", str(track)]
+    lufs = mux(out, track, start, total, inputs, ["-vf", vf], ["-map", "0:v", "-map", "1:a"], kbps)
     return {"member": member, "name_on_screen": name, "track": track_id, "track_title": title, "window": [start, end],
             "seconds": total, "lufs": round(lufs, 2), "out": str(out)}
+
+
+def build_song(key, out, card_dir, audio_dir, kbps=2300):
+    title, card, track_id, start, end = SONGS[key]
+    track = Path(audio_dir) / f"bw-{track_id}.mp3"
+    total = window_seconds(start, end)
+    fc = (song_filter(total) + f";[v0]fade=t=in:st=0:d={FADE_IN},fade=t=out:st={total - FADE_IN:.3f}:d={FADE_IN},format=yuv420p[v]")
+    inputs = ["-loop", "1", "-framerate", str(FPS), "-t", f"{total:.3f}", "-i", str(Path(card_dir) / card),
+              "-ss", f"{start:.3f}", "-t", f"{total:.3f}", "-i", str(track)]
+    lufs = mux(out, track, start, total, inputs, ["-filter_complex", fc], ["-map", "[v]", "-map", "1:a"], kbps)
+    return {"song": key, "title_on_card": title, "track": track_id, "window": [start, end], "seconds": total,
+            "lufs": round(lufs, 2), "out": str(out)}
 
 
 def main(argv=None):
@@ -139,9 +186,17 @@ def main(argv=None):
     b.add_argument("--in-dir", default=os.path.expanduser("~/clawd-twitch/air/band-in/2026-11-03-nx01"))
     b.add_argument("--audio-dir", default=os.path.expanduser("~/bandwagon-kit-out/audio"))
     b.add_argument("--work", default=None)
+    sg = sub.add_parser("song")
+    sg.add_argument("song", choices=sorted(SONGS))
+    sg.add_argument("out")
+    sg.add_argument("--card-dir", default=os.path.expanduser("~/clawd-twitch/air/band-in/2026-11-04-songcards"))
+    sg.add_argument("--audio-dir", default=os.path.expanduser("~/bandwagon-kit-out/audio"))
     a = ap.parse_args(argv)
     if a.cmd == "list":
-        print(json.dumps(BAND, indent=1))
+        print(json.dumps({"members": BAND, "songs": SONGS}, indent=1))
+        return 0
+    if a.cmd == "song":
+        print(json.dumps(build_song(a.song, a.out, a.card_dir, a.audio_dir)))
         return 0
     work = a.work or os.path.join(os.path.dirname(a.out) or ".", f".work-{a.member}")
     print(json.dumps(build(a.member, a.out, a.in_dir, a.audio_dir, work)))
