@@ -9,7 +9,7 @@ controller in `src/` needs a running OBS to drive; this folder sends a pre-rende
 | `build_loop.py` | Renders `out/<set>-loop.mp4` (1280x720, 30 fps, keyframe every 2 s, CBR 3,500 kbps, AAC 160 kbps 48 kHz, each song at -16 LUFS) |
 | `push.py` | `-stream_loop -1 -re -c copy -t <set length>` to Twitch. Reads the key only here; every log line is redacted |
 | `chat_tally.py` | Read-only anonymous chat reader (justinfan login, no token); counts "1" and "2" into a JSON file |
-| `is_live.sh` | `is_live.sh scripthammer` prints live or offline |
+| `is_live.sh` | `is_live.sh scripthammer` prints `live (api)`, `offline (api)`, `live (preview)` or `offline (preview)` |
 | `arm_timers.sh` | `arm_timers.sh thu` or `sat` arms the push and tally timers; a second arm is refused |
 | `vote/` | Live fan-vote stream: loops the Band Wagon clips with the song title and a live `!up` / `!down` tally on screen. Reads chat through `chat_tally.read_chat` and hides the key with `push.redact`; see `vote/README.md` |
 
@@ -29,5 +29,5 @@ The stream key lives in `~/.config/afa/secrets/twitch-scripthammer.key` (mode 60
 
 - To change the songs, edit the `items` list in the set file and rebuild; the timers read the loop file when they fire.
 - Set 1 stops itself at 7:30 PM (92 min), set 2 at 10:00 PM (122 min). Each loop is about 4 min 5 s.
-- `is_live.sh` reads Twitch's public preview image, which can lag a few minutes after a start or stop.
+- `is_live.sh` asks Twitch's API first (through the private token helper `$TWITCH_HELPER`, default `~/.config/afa/secrets/twitch_user.py`, when it exists) and falls back to the public preview image, which can lag 12+ minutes after a start or stop.
 - Tests: `python3 -m pytest -c /dev/null --rootdir=. playout/tests`
