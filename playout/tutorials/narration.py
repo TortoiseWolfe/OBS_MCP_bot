@@ -110,7 +110,7 @@ def tighten(src, dest, keep=PAUSE, min_cut=MIN_CUT):
     return cuts
 
 
-async def speak(text, output, voice, timing_output):
+async def speak_once(text, voice):
     import edge_tts  # noqa: PLC0415 - only the lane venv has it
     boundaries, chunks = [], []
     async for chunk in edge_tts.Communicate(text, voice).stream():
@@ -118,7 +118,21 @@ async def speak(text, output, voice, timing_output):
             chunks.append(chunk["data"])
         elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
             boundaries.append({"offset": chunk["offset"], "duration": chunk["duration"], "text": chunk["text"]})
-    Path(output).write_bytes(b"".join(chunks))
+    return b"".join(chunks), boundaries
+
+
+async def speak(text, output, voice, timing_output, tries=4, wait=5.0):
+    """Edge TTS now and then answers with no audio at all; ask again after a pause before giving up."""
+    for attempt in range(1, tries + 1):
+        try:
+            data, boundaries = await speak_once(text, voice)
+            break
+        except Exception as e:  # noqa: BLE001 - the service raises its own error types
+            if attempt == tries:
+                raise
+            print(f"TTS try {attempt} failed ({type(e).__name__}), asking again", file=sys.stderr)
+            await asyncio.sleep(wait * attempt)
+    Path(output).write_bytes(data)
     return boundaries
 
 

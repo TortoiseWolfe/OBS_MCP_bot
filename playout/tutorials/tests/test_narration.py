@@ -54,3 +54,33 @@ def test_tighten_shortens_the_long_pause_only(tmp_path):
     log = n.run_ffmpeg(["-i", str(dest), "-af", "silencedetect=n=-50dB:d=0.2", "-f", "null", "-"]).stderr
     gaps = [e - s for s, e in n.parse_silences(log)]
     assert gaps and max(gaps) < 0.45                    # no pause over 0.45 s is left
+
+
+def test_speak_asks_again_after_a_failure(monkeypatch, tmp_path):
+    import asyncio
+
+    calls = []
+
+    async def flaky(text, voice):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("No audio was received")
+        return b"abc", [{"offset": 0, "duration": 1, "text": "hi"}]
+
+    monkeypatch.setattr(n, "speak_once", flaky)
+    out = tmp_path / "a.mp3"
+    b = asyncio.run(n.speak("hi", str(out), "v", None, tries=4, wait=0))
+    assert len(calls) == 3 and out.read_bytes() == b"abc" and b[0]["text"] == "hi"
+
+
+def test_speak_gives_up_after_the_last_try(monkeypatch, tmp_path):
+    import asyncio
+
+    import pytest
+
+    async def dead(text, voice):
+        raise RuntimeError("no audio")
+
+    monkeypatch.setattr(n, "speak_once", dead)
+    with pytest.raises(RuntimeError):
+        asyncio.run(n.speak("hi", str(tmp_path / "a.mp3"), "v", None, tries=2, wait=0))
