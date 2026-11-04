@@ -10,7 +10,8 @@ AIR="${AIR_DIR:-/home/turtle_wolfe/clawd-twitch/air/reel-v1}"
 KEYF="${AIR_KEYFILE:-/home/turtle_wolfe/.config/afa/secrets/twitch-scripthammer.key}"; BASE="${AIR_RTMP_BASE:-rtmp://live.twitch.tv/app}"
 PORT="${AIR_RELAY_PORT:-19350}"; PROJ="${AIR_RELAY_PROJECT:-bw-air-relay}"
 [ -f "$AIR/list.json" ] || { echo "no list at $AIR/list.json"; exit 2; }
-if [ -f "$AIR/rotate.pid" ] && kill -0 "$(cat "$AIR/rotate.pid")" 2>/dev/null; then echo "REFUSED: the rotation is already on air"; exit 4; fi
+# a pid file survives a reboot and its number can then belong to any process: only a live rotate.py counts, anything else is a stale file (removed)
+if [ -f "$AIR/rotate.pid" ] && python3 "$HERE/rotate_pid.py" "$AIR/rotate.pid"; then echo "REFUSED: the rotation is already on air"; exit 4; fi
 if pgrep -f '^python3 run.py live' >/dev/null; then echo "REFUSED: the vote stream (run.py live) is still running"; exit 3; fi
 RUN="$AIR/relay-run"; mkdir -p "$RUN"; export RELAY_CONF="$RUN/nginx.conf" RELAY_PORT="$PORT"
 compose() { timeout 120 docker compose -p "$PROJ" -f "$VOTE/relay/compose.yml" "$@"; }
