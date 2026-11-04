@@ -283,3 +283,39 @@ def test_band_segment_cycle_window_and_box():
     assert "x=64" in g and "textfile=n.txt" in g
     assert bs.BAND["Chorus"][0] == "Chorus"  # the on-screen name, though the file stem stays Verse
     assert set(bs.BAND) == {"Brass", "Chops", "Crash", "Ivory", "Reed", "Chorus"}
+
+
+def test_band_song_cards_table_and_filter():
+    from playout.tutorials import band_segment as bs
+    assert set(bs.SONGS) == {"soundcheck", "warehouse", "ghosts"}
+    used = {v[2] for v in bs.BAND.values()}
+    tracks = [v[2] for v in bs.SONGS.values()]
+    assert len(set(tracks)) == 3 and not used & set(tracks)          # three new songs, none already under a member segment
+    assert not {"n02", "n06"} & set(tracks)                          # the held songs stay out
+    for title, card, _track, start, end in bs.SONGS.values():
+        assert card.endswith("-card.jpg") and 140 < end - start <= 150 and title
+    assert bs.SONGS["soundcheck"][0] == "Soundcheck at Midnight"
+    g = bs.song_filter(145.0)
+    assert "eval=frame" in g and "overlay=(W-w)/2:(H-h)/2" in g and "force_original_aspect_ratio=decrease" not in g
+    assert bs.CARD_END == bs.H - 2 * bs.MARGIN_Y and bs.CARD_START < bs.CARD_END   # ends on the safe margin, never past it
+
+
+def test_band_song_filter_renders_a_fitted_frame(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("no ffmpeg")
+    from playout.tutorials import band_segment as bs
+    card = tmp_path / "card.png"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=1600x1600,drawbox=x=400:y=400:w=800:h=800:color=white:t=fill", "-frames:v", "1", str(card)], check=True)
+    out = tmp_path / "o.png"
+    fc = bs.song_filter(2.0) + ";[v0]null[v]"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-loop", "1", "-framerate", "30", "-t", "2", "-i", str(card),
+                    "-filter_complex", fc, "-map", "[v]", "-frames:v", "1", "-ss", "0", str(out)], check=True)
+    from PIL import Image
+    im = Image.open(out).convert("RGB")
+    assert im.size == (1920, 1080)
+    # the card (white square 800 of 1600 px in the middle) is drawn 984 px a side at the start, so the square is about 492 px a side
+    assert im.getpixel((960, 540))[0] > 200 and im.getpixel((960 + 200, 540))[0] > 200   # inside the square
+    assert im.getpixel((960 + 300, 540))[0] < 60                                         # just outside it: the card's own black
+    assert im.getpixel((960 + 700, 540))[0] < 60 and im.getpixel((960, 10))[0] < 60       # side bars and top strip: only the darkened fill
