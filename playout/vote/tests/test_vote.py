@@ -52,10 +52,15 @@ def test_rankings_and_export():
 def test_the_catalog_has_every_full_song_jams_included_and_never_the_shorts_cuts(tmp_path):
     from bwvote import catalog
     cfg = playlist.load()
-    cfg["catalog"] = str(tmp_path / "no-factory-takes-yet.json")  # the real factory catalog now fills up; this checks the fixed playlist alone
+    audio = tmp_path / "audio"  # stand-in audio folder, so the test doesn't depend on the tower's real files
+    audio.mkdir()
+    for s in cfg["songs"]:
+        (audio / s["file"]).write_bytes(b"x")
+        s["path"] = audio / s["file"]
+    cfg["catalog"] = str(tmp_path / "no-factory-takes-yet.json")  # no factory takes: this checks the fixed playlist alone
     got = catalog.load(cfg)
-    assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]  # all 37 files exist on this machine
-    assert sum(s["group"] == "jam" for s in got) == 6
+    assert [s["file"] for s in got] == [s["file"] for s in cfg["songs"]]
+    assert sum(s["group"] == "jam" for s in got) == sum(s["group"] == "jam" for s in cfg["songs"]) > 0
     assert not any("clip" in str(s["path"]) for s in got)
 
 
@@ -70,7 +75,9 @@ def test_nothing_restarts_the_encoder_but_it_ending_on_its_own():
 
 def test_playlist_json_ids_match_audio_prefix():
     cfg = playlist.load()
-    assert len(cfg["songs"]) == 37 and len({s["id"] for s in cfg["songs"]}) == 37
+    ids = [s["id"] for s in cfg["songs"]]
+    assert ids and len(set(ids)) == len(ids)
+    assert all(s["id"] == cfg["audio_prefix"] + s["file"] for s in cfg["songs"])
 
 
 def test_live_timeline_follows_songs_as_they_start():
@@ -122,10 +129,10 @@ def test_featured_songs_keep_a_floor_until_the_date_then_follow_the_votes():
     assert w_after[songs[0]["id"]] == 0.25
 
 
-def test_playlist_features_the_six_story_takes_until_thursday_noon():
+def test_playlist_features_the_four_story_takes_until_thursday_noon():
     cfg = playlist.load()
     story = [s for s in cfg["songs"] if s["group"] == "story"]
-    assert [s["file"] for s in story] == [f"bw-story-{n}.mp3" for n in ("1", "1b", "7", "7b", "13", "13b")]
+    assert [s["file"] for s in story] == [f"bw-story-{n}.mp3" for n in ("7", "7b", "13", "13b")]
     assert all(s["feature"] == {"weight": 2, "until": "2026-10-29T12:00:00-04:00"} for s in story)
 
 
