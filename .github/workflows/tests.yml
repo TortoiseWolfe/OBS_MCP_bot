@@ -17,8 +17,8 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      # Only the tests marked "requires_obs" are left out: they talk to a live OBS over
-      # its websocket (run them on a machine with OBS up: pytest tests -m requires_obs).
+      # Only the tests marked "requires_obs" are left out here: they talk to a live OBS over
+      # its websocket, so the obs-tests job below runs them against a headless OBS.
       # The other integration tests run here against a small content folder and
       # database built in a temporary directory (tests/integration/conftest.py).
       # pytest.ini supplies the coverage floor.
@@ -38,3 +38,40 @@ jobs:
       - run: pip install -r requirements.txt pillow numpy opencv-python-headless
       # -o addopts="" drops the src coverage options from pytest.ini, which do not apply here.
       - run: python -m pytest playout -o addopts=""
+
+  obs-tests:
+    name: live-OBS tests (headless OBS and a stand-in stream server, never Twitch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NET: obs-test-net
+    steps:
+      - uses: actions/checkout@v4
+      # The network has no route to the outside, so nothing here can reach Twitch.
+      - name: Start the stand-in stream server (MediaMTX)
+        run: |
+          docker network create --internal "$NET"
+          docker run -d --name standin --network "$NET" --network-alias standin \
+            --cpus 1 --memory 256m \
+            -e MTX_RTSP=no -e MTX_HLS=no -e MTX_WEBRTC=no -e MTX_SRT=no -e MTX_API=no -e MTX_METRICS=no \
+            bluenviron/mediamtx:1.21.3
+      - name: Build the headless test OBS image (obs-studio under xvfb)
+        run: docker build -f ci/obs-test/Dockerfile -t obs-test .
+      - name: Start the test OBS (websocket on, streams to the stand-in with a dummy key)
+        run: |
+          chmod -R a+rwX .
+          docker run -d --name obs --network "$NET" --shm-size=512m \
+            -e STANDIN_RTMP=rtmp://standin:1935/live \
+            -v "$PWD:/work" -w /work obs-test
+          for i in $(seq 1 60); do
+            docker exec obs bash -c 'timeout 3 bash -c "exec 3<>/dev/tcp/127.0.0.1/4455"' 2>/dev/null && exit 0
+            sleep 2
+          done
+          echo "the test OBS websocket did not come up"; docker logs obs | tail -50; exit 1
+      - name: Run the tests marked requires_obs (none may skip)
+        run: docker exec -u obs obs bash /work/ci/obs-test/run-tests.sh
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker logs obs | tail -80 || true
+          docker logs standin | tail -40 || true
