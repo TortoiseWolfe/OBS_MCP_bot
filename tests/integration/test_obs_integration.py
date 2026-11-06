@@ -52,6 +52,7 @@ async def obs_controller(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_obs_connection(obs_settings):
     """Test basic OBS WebSocket connection.
@@ -100,6 +101,7 @@ async def test_connection_retry_on_failure(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_list_scenes(obs_controller):
     """Test scene enumeration (FR-003).
@@ -117,6 +119,7 @@ async def test_list_scenes(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_get_current_scene(obs_controller):
     """Test current scene detection (FR-005).
@@ -136,6 +139,7 @@ async def test_get_current_scene(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_scene_switching(obs_controller):
     """Test programmatic scene switching (FR-002).
@@ -168,6 +172,7 @@ async def test_scene_switching(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_scene_exists(obs_controller):
     """Test scene existence checking (FR-012).
@@ -187,6 +192,7 @@ async def test_scene_exists(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_create_scene(obs_controller):
     """Test scene creation (FR-003, FR-004).
@@ -216,6 +222,7 @@ async def test_create_scene(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_get_streaming_status(obs_controller):
     """Test streaming status retrieval (FR-014).
@@ -236,6 +243,7 @@ async def test_get_streaming_status(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_get_obs_stats(obs_controller):
     """Test OBS performance stats retrieval (FR-019).
@@ -277,6 +285,7 @@ async def test_disconnected_operations_fail():
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 @pytest.mark.slow
 async def test_streaming_start_stop(obs_controller):
@@ -328,6 +337,7 @@ async def test_streaming_start_stop(obs_controller):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_preflight_validation(obs_settings):
     """T042: Integration test for pre-flight validation (FR-009-013).
@@ -418,6 +428,7 @@ async def test_preflight_validation(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 @pytest.mark.slow
 async def test_auto_start_streaming_after_validation():
@@ -515,6 +526,7 @@ async def test_auto_start_streaming_after_validation():
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_content_playback_and_transitions():
     """T044: Integration test for content playback and transitions (FR-035-039).
@@ -598,6 +610,7 @@ async def test_content_playback_and_transitions():
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_owner_detector_initialization(obs_settings):
     """Test OwnerDetector service initialization and startup.
@@ -653,6 +666,7 @@ async def test_owner_detector_initialization(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_owner_interrupt_detection(obs_settings):
     """Test owner interrupt detection via scene change.
@@ -738,6 +752,7 @@ async def test_owner_interrupt_detection(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 async def test_manual_scene_selection_not_triggering_return(obs_settings):
     """Test that manual scene selection doesn't trigger owner return.
@@ -908,6 +923,7 @@ async def test_owner_session_persistence(obs_settings):
 
 
 @pytest.mark.integration
+@pytest.mark.requires_obs
 @pytest.mark.asyncio
 @pytest.mark.slow
 async def test_full_owner_interrupt_workflow():

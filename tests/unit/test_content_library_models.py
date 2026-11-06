@@ -91,6 +91,8 @@ class TestContentSource:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\mit_ocw\\lecture_01.mp4",
             duration_sec=3125,
             file_size_mb=450.5,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="6.0001 Introduction to Computer Science",
@@ -118,6 +120,8 @@ class TestContentSource:
                 windows_obs_path="\\\\wsl.localhost\\Debian\\tmp\\video.mp4",
                 duration_sec=100,
                 file_size_mb=10.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -130,7 +134,7 @@ class TestContentSource:
                 last_verified=datetime.utcnow(),
             )
 
-        assert "file_path must be within /home/turtle_wolfe/repos/OBS_bot/content/" in str(exc_info.value)
+        assert "file_path must start with one of" in str(exc_info.value)
 
     def test_invalid_windows_path(self):
         """Test that Windows path without UNC prefix is rejected."""
@@ -141,6 +145,8 @@ class TestContentSource:
                 windows_obs_path="C:\\content\\test.mp4",  # Invalid - not UNC path
                 duration_sec=100,
                 file_size_mb=10.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -164,6 +170,8 @@ class TestContentSource:
                 windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\test.mp4",
                 duration_sec=-100,  # Invalid - negative
                 file_size_mb=10.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -185,6 +193,8 @@ class TestContentSource:
                 windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\test.mp4",
                 duration_sec=100,
                 file_size_mb=10.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -206,6 +216,8 @@ class TestContentSource:
                 windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\test.mp4",
                 duration_sec=100,
                 file_size_mb=10.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",

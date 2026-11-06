@@ -430,10 +430,12 @@ class TestExportToJson:
         content_sources = [
             ContentSource(
                 title="Test Video",
-                file_path=str(tmp_path / "test.mp4"),
+                file_path="/app/content/test.mp4",
                 windows_obs_path="\\\\wsl.localhost\\Debian\\test.mp4",
                 duration_sec=300,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test Course",
@@ -473,10 +475,12 @@ class TestPrintSummary:
         content_sources = [
             ContentSource(
                 title="Video 1",
-                file_path="/test1.mp4",
-                windows_obs_path="\\\\test1.mp4",
+                file_path="/app/content/test1.mp4",
+                windows_obs_path="\\\\wsl.localhost\\Debian\\test1.mp4",
                 duration_sec=600,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Course 1",
@@ -490,10 +494,12 @@ class TestPrintSummary:
             ),
             ContentSource(
                 title="Video 2",
-                file_path="/test2.mp4",
-                windows_obs_path="\\\\test2.mp4",
+                file_path="/app/content/test2.mp4",
+                windows_obs_path="\\\\wsl.localhost\\Debian\\test2.mp4",
                 duration_sec=1200,
                 file_size_mb=200.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.CS50,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Course 2",

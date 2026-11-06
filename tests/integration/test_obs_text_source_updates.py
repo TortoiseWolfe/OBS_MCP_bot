@@ -1,160 +1,94 @@
 """Integration test for OBS text source updates (T074).
 
 Tests the live OBS text source attribution system.
-Requires OBS to be running with obs-websocket enabled.
+Requires OBS to be running with obs-websocket enabled, so every test here is marked
+requires_obs and is left out of CI. The ``live_obs`` and ``attribution_updater``
+fixtures (conftest.py) connect to OBS and make the "Content Attribution" text source
+if it is missing; with OBS down they error rather than skip.
 """
 
-import pytest
 import asyncio
-from src.services.obs_controller import OBSController
-from src.services.obs_attribution_updater import OBSAttributionUpdater
+
+import pytest
+from obswebsocket import requests as obs_requests
+
 from src.config.settings import Settings
+from src.models.content_library import SourceAttribution
 
 
 @pytest.mark.integration
 @pytest.mark.requires_obs
 @pytest.mark.asyncio
-async def test_obs_text_source_creation():
-    """Test that text source can be created in OBS."""
-    try:
-        settings = Settings()
-        updater = OBSAttributionUpdater(settings.obs)
+async def test_obs_text_source_creation(live_obs, attribution_updater, make_content):
+    """The attribution text source exists in OBS and accepts an update."""
+    assert await attribution_updater.verify_text_source_exists()
 
-        # Ensure text source exists
-        await updater.ensure_text_source()
-
-        # Verify source was created by trying to update it
-        await updater.update_attribution(
-            source_name="Test Source",
-            title="Integration Test",
-            license_type="CC BY 4.0",
-        )
-
-        # Cleanup
-        await updater.clear_attribution()
-
-    except ConnectionRefusedError:
-        pytest.skip("OBS not running or WebSocket not enabled")
-    except Exception as e:
-        pytest.fail(f"OBS integration failed: {e}")
+    await attribution_updater.update_attribution(
+        make_content(title="Integration Test", license_type="CC BY 4.0")
+    )
 
 
 @pytest.mark.integration
 @pytest.mark.requires_obs
 @pytest.mark.asyncio
-async def test_obs_attribution_update_cycle():
+async def test_obs_attribution_update_cycle(attribution_updater, make_content):
     """Test full attribution update cycle with OBS."""
-    try:
-        settings = Settings()
-        updater = OBSAttributionUpdater(settings.obs)
+    await attribution_updater.update_attribution(
+        make_content(title="What is Computation?", source=SourceAttribution.MIT_OCW)
+    )
 
-        # Ensure source exists
-        await updater.ensure_text_source()
+    # Wait briefly to ensure OBS processes the update
+    await asyncio.sleep(0.1)
 
-        # Update with test content
-        await updater.update_attribution(
-            source_name="MIT OpenCourseWare 6.0001",
-            title="What is Computation?",
-            license_type="CC BY-NC-SA 4.0",
-        )
+    # Update with different content
+    await attribution_updater.update_attribution(
+        make_content(title="Introduction to Computer Science", source=SourceAttribution.CS50)
+    )
 
-        # Wait briefly to ensure OBS processes the update
-        await asyncio.sleep(0.1)
+    await asyncio.sleep(0.1)
 
-        # Update with different content
-        await updater.update_attribution(
-            source_name="Harvard CS50",
-            title="Introduction to Computer Science",
-            license_type="CC BY-NC-SA 4.0",
-        )
-
-        # Wait briefly
-        await asyncio.sleep(0.1)
-
-        # Clear attribution
-        await updater.clear_attribution()
-
-    except ConnectionRefusedError:
-        pytest.skip("OBS not running or WebSocket not enabled")
-    except Exception as e:
-        pytest.fail(f"Attribution cycle failed: {e}")
+    # Clear attribution
+    await attribution_updater.clear_attribution()
 
 
 @pytest.mark.integration
 @pytest.mark.requires_obs
 @pytest.mark.asyncio
-async def test_obs_text_source_visible_in_scene():
-    """Test that text source is visible in the automated content scene."""
-    try:
-        settings = Settings()
-        obs = OBSController(settings.obs)
-        await obs.connect()
+async def test_obs_text_source_visible_in_scene(live_obs, attribution_updater):
+    """Test that the text source is listed in the automated content scene."""
+    scene_name = Settings().scenes.automated_content
+    ws = live_obs._ensure_connected()
 
-        # Get current scene items
-        scene_items = await obs.get_scene_items(settings.obs.scenes["automated_content"])
+    scene_items = ws.call(obs_requests.GetSceneItemList(sceneName=scene_name)).getSceneItems()
 
-        # Check if Content Attribution source exists
-        source_names = [item.get("sourceName", "") for item in scene_items]
-        assert "Content Attribution" in source_names, "Attribution source not found in scene"
-
-        await obs.disconnect()
-
-    except ConnectionRefusedError:
-        pytest.skip("OBS not running or WebSocket not enabled")
-    except Exception as e:
-        pytest.fail(f"Scene inspection failed: {e}")
+    source_names = [item.get("sourceName", "") for item in scene_items]
+    assert attribution_updater.text_source_name in source_names, (
+        f"'{attribution_updater.text_source_name}' not found in scene '{scene_name}'"
+    )
 
 
 @pytest.mark.integration
 @pytest.mark.requires_obs
 @pytest.mark.asyncio
-async def test_obs_attribution_with_special_characters():
+async def test_obs_attribution_with_special_characters(attribution_updater, make_content):
     """Test attribution with special characters and edge cases."""
-    try:
-        settings = Settings()
-        updater = OBSAttributionUpdater(settings.obs)
-
-        await updater.ensure_text_source()
-
-        # Test with special characters
-        await updater.update_attribution(
-            source_name='Source & "Quoted" <Name>',
-            title="Title with émojis 🎓 and spëcial çharacters",
+    await attribution_updater.update_attribution(
+        make_content(
+            title='Title with "quotes" <tags> & émojis 🎓 and spëcial çharacters',
             license_type="CC BY-NC-SA 4.0",
         )
+    )
 
-        await asyncio.sleep(0.1)
-        await updater.clear_attribution()
-
-    except ConnectionRefusedError:
-        pytest.skip("OBS not running or WebSocket not enabled")
-    except Exception as e:
-        pytest.fail(f"Special character handling failed: {e}")
+    await asyncio.sleep(0.1)
 
 
 @pytest.mark.integration
 @pytest.mark.requires_obs
 @pytest.mark.asyncio
-async def test_obs_multiple_rapid_updates():
+async def test_obs_multiple_rapid_updates(attribution_updater, make_content):
     """Test that OBS handles multiple rapid attribution updates."""
-    try:
-        settings = Settings()
-        updater = OBSAttributionUpdater(settings.obs)
-
-        await updater.ensure_text_source()
-
-        # Rapidly update attribution 10 times
-        for i in range(10):
-            await updater.update_attribution(
-                source_name=f"Source {i}",
-                title=f"Title {i}",
-                license_type="CC BY 4.0",
-            )
-
-        # Should complete without errors
-        await updater.clear_attribution()
-
-    except ConnectionRefusedError:
-        pytest.skip("OBS not running or WebSocket not enabled")
-    except Exception as e:
-        pytest.fail(f"Rapid updates failed: {e}")
+    # Rapidly update attribution 10 times; any failure raises
+    for i in range(10):
+        await attribution_updater.update_attribution(
+            make_content(title=f"Title {i}", license_type="CC BY 4.0")
+        )

@@ -61,10 +61,12 @@ def sample_content_sources():
     return [
         ContentSource(
             title="Kids Video 1",
-            file_path="/content/kids/video1.mp4",
-            windows_obs_path="\\\\wsl\\content\\kids\\video1.mp4",
+            file_path="/app/content/kids/video1.mp4",
+            windows_obs_path="\\\\wsl.localhost\\content\\kids\\video1.mp4",
             duration_sec=600,
             file_size_mb=100.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.KHAN_ACADEMY,
             license_type="CC BY-NC-SA",
             course_name="Computer Programming",
@@ -78,10 +80,12 @@ def sample_content_sources():
         ),
         ContentSource(
             title="Professional Video 1",
-            file_path="/content/professional/video1.mp4",
-            windows_obs_path="\\\\wsl\\content\\professional\\video1.mp4",
+            file_path="/app/content/professional/video1.mp4",
+            windows_obs_path="\\\\wsl.localhost\\content\\professional\\video1.mp4",
             duration_sec=1200,
             file_size_mb=200.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="6.0001",
@@ -95,10 +99,12 @@ def sample_content_sources():
         ),
         ContentSource(
             title="Evening Video 1",
-            file_path="/content/evening/video1.mp4",
-            windows_obs_path="\\\\wsl\\content\\evening\\video1.mp4",
+            file_path="/app/content/evening/video1.mp4",
+            windows_obs_path="\\\\wsl.localhost\\content\\evening\\video1.mp4",
             duration_sec=3600,
             file_size_mb=500.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.CS50,
             license_type="CC BY-NC-SA 4.0",
             course_name="Introduction to Computer Science",
@@ -112,10 +118,12 @@ def sample_content_sources():
         ),
         ContentSource(
             title="General Video 1",
-            file_path="/content/general/video1.mp4",
-            windows_obs_path="\\\\wsl\\content\\general\\video1.mp4",
+            file_path="/app/content/general/video1.mp4",
+            windows_obs_path="\\\\wsl.localhost\\content\\general\\video1.mp4",
             duration_sec=900,
             file_size_mb=150.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="General Course",
@@ -322,9 +330,10 @@ class TestSelectContentForCurrentTime:
 
         result = scheduler_with_db._select_content_for_current_time()
 
-        # Should fall back to general content with appropriate age rating
-        # No kids content available, so should return empty for KIDS time block
-        assert len(result) == 0
+        # No kids content is left, so the scheduler falls back to content tagged
+        # "general". Only "General Video 1" has that tag and an age rating (ALL)
+        # that is allowed in a kids block.
+        assert [cs.title for cs in result] == ["General Video 1"]
 
     @patch("src.services.content_scheduler.ContentScheduler._get_current_time_block")
     def test_select_content_empty_database(
@@ -362,40 +371,49 @@ class TestContentPlaybackIntegration:
 
     @pytest.mark.asyncio
     @patch("src.services.content_scheduler.ContentScheduler._select_content_for_current_time")
-    @patch("asyncio.sleep", new_callable=AsyncMock)
     async def test_database_mode_uses_actual_duration(
-        self, mock_sleep, mock_select, scheduler_with_db, sample_content_sources
+        self, mock_select, scheduler_with_db, mock_obs_controller, sample_content_sources
     ):
-        """Test database mode uses actual video duration, not estimates."""
-        mock_select.return_value = sample_content_sources[:1]  # One video
+        """Test database mode waits the video's real duration, not the 300 s default."""
+        content = sample_content_sources[0]  # duration_sec=600
+        mock_select.return_value = [content]
 
-        # Start and immediately stop to test one iteration
-        await scheduler_with_db.start()
-        await asyncio.sleep(0.1)  # Let loop start
-        await scheduler_with_db.stop()
+        mock_obs_controller._ensure_connected = Mock()
+        mock_obs_controller.get_canvas_resolution = AsyncMock(return_value=(1920, 1080))
+        mock_obs_controller.calculate_video_transform = Mock(return_value=(0, 0, 1.0, 1.0))
+        mock_obs_controller.set_source_transform = AsyncMock()
 
-        # Verify actual duration used (600 seconds), not default 300
-        # mock_sleep should be called with actual duration
-        if mock_sleep.call_count > 0:
-            duration_call = [call for call in mock_sleep.call_args_list if call[0][0] > 1]
-            if duration_call:
-                assert duration_call[0][0][0] == 600  # Actual duration from ContentSource
+        waits = []
+
+        async def fake_sleep(seconds):
+            # Record every wait and stop the loop once the video "finished playing".
+            waits.append(seconds)
+            if seconds == content.duration_sec:
+                scheduler_with_db._running = False
+
+        scheduler_with_db._running = True
+        with patch("src.services.content_scheduler.asyncio.sleep", fake_sleep):
+            await scheduler_with_db._content_playback_loop()
+
+        mock_obs_controller.switch_scene.assert_awaited_with("Automated Content")
+        # The video's real length, then the short 0.5 s transition pause. A 5 s wait
+        # here would mean the loop hit an error and went into its retry wait.
+        assert waits == [600, 0.5]
 
 
 class TestContentSchedulerBackwardCompatibility:
     """Test backward compatibility with Tier 1 filesystem mode."""
 
     def test_filesystem_mode_still_works(self, scheduler, tmp_path):
-        """Test filesystem discovery still works without database."""
-        # Create test video files
+        """Test filesystem discovery still finds the video files in the content folder."""
         content_dir = tmp_path / "content"
         content_dir.mkdir()
         (content_dir / "video1.mp4").write_text("fake")
         (content_dir / "video2.mp4").write_text("fake")
+        (content_dir / "notes.txt").write_text("not a video")
 
-        with patch("pathlib.Path", return_value=content_dir):
+        # _discover_content looks in /app/content; point it at the temporary folder.
+        with patch("src.services.content_scheduler.Path", return_value=content_dir):
             files = scheduler._discover_content()
 
-        # Should discover videos from filesystem (if directory exists)
-        # In test environment, this will return empty list but method works
-        assert isinstance(files, list)
+        assert [f.name for f in files] == ["video1.mp4", "video2.mp4"]
