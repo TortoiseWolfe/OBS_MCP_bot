@@ -32,6 +32,14 @@ class OBSAttributionUpdater:
     """
 
     DEFAULT_TEXT_SOURCE_NAME = "Content Attribution"
+
+    # Readable names for the SourceAttribution codes.
+    SOURCE_DISPLAY_NAMES = {
+        "MIT_OCW": "MIT OpenCourseWare",
+        "CS50": "Harvard CS50",
+        "KHAN_ACADEMY": "Khan Academy",
+        "BLENDER": "Blender Foundation",
+    }
     DEFAULT_UPDATE_TIMEOUT = 1.0  # seconds (SC-013: <1 second requirement)
 
     def __init__(
@@ -87,18 +95,18 @@ class OBSAttributionUpdater:
         """
         # Extract from ContentSource if provided
         if content_source:
-            source_attribution = content_source.source_attribution or "Unknown Source"
+            # A stored, ready-made line is what the content record says to show.
+            stored_text = (getattr(content_source, "attribution_text", "") or "").strip()
+            if stored_text:
+                return stored_text
+
+            source_attribution = content_source.source_attribution
+            # The field is an enum of codes such as MIT_OCW; show a readable name.
+            code = getattr(source_attribution, "value", source_attribution)
+            source_name = self.SOURCE_DISPLAY_NAMES.get(code) or code or "Unknown Source"
+            course_name = getattr(content_source, "course_name", "") or ""
             title = content_source.title or "Untitled"
             license_type = content_source.license_type or "Unknown License"
-
-            # Parse source attribution (e.g., "MIT OpenCourseWare 6.0001")
-            parts = source_attribution.split()
-            if len(parts) >= 2:
-                source_name = " ".join(parts[:-1])  # "MIT OpenCourseWare"
-                course_name = parts[-1]  # "6.0001"
-            else:
-                source_name = source_attribution
-                course_name = ""
 
         # Build attribution text
         components = []

@@ -231,6 +231,40 @@ def test_format_attribution_with_special_characters(attribution_updater):
     assert "CC BY-NC-SA 4.0" in formatted
 
 
+def test_format_attribution_prefers_the_stored_text(attribution_updater):
+    """A content record's own attribution_text is shown as written."""
+    from types import SimpleNamespace
+
+    content = SimpleNamespace(
+        source_attribution="MIT_OCW",
+        course_name="6.0001",
+        title="Lecture 1",
+        license_type="CC BY-NC-SA 4.0",
+        attribution_text="MIT OpenCourseWare 6.0001: Lecture 1 - CC BY-NC-SA 4.0",
+    )
+
+    assert attribution_updater.format_attribution_text(content) == content.attribution_text
+
+
+def test_format_attribution_turns_the_source_code_into_a_readable_name(attribution_updater):
+    """Without stored text, MIT_OCW shows as 'MIT OpenCourseWare' plus the course name."""
+    from src.models.content_library import SourceAttribution
+    from types import SimpleNamespace
+
+    content = SimpleNamespace(
+        source_attribution=SourceAttribution.MIT_OCW,
+        course_name="6.0001",
+        title="Lecture 1",
+        license_type="CC BY-NC-SA 4.0",
+        attribution_text="",
+    )
+
+    text = attribution_updater.format_attribution_text(content)
+
+    assert text == "MIT OpenCourseWare 6.0001: Lecture 1 - CC BY-NC-SA 4.0"
+    assert "MIT_OCW" not in text
+
+
 # ===== Performance baseline =====
 
 

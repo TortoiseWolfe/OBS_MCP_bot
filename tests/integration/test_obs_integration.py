@@ -364,6 +364,10 @@ async def test_preflight_validation(obs_settings):
     from src.services.obs_controller import OBSController
     from src.services.startup_validator import StartupValidator
 
+    # The credentials check fails by design when no stream key is set
+    if not os.getenv("TWITCH_STREAM_KEY"):
+        pytest.skip("TWITCH_STREAM_KEY not configured - skipping pre-flight validation test")
+
     # Create temp database for test isolation
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
@@ -951,6 +955,10 @@ async def test_full_owner_interrupt_workflow():
     # Skip if no OBS configured
     if not os.getenv("OBS_BOT_OBS__WEBSOCKET_URL"):
         pytest.skip("OBS_BOT_OBS__WEBSOCKET_URL not configured")
+
+    # The workflow starts a real stream, which needs a stream key
+    if not os.getenv("TWITCH_STREAM_KEY"):
+        pytest.skip("TWITCH_STREAM_KEY not configured - skipping owner interrupt workflow test")
 
     from src.config.settings import Settings
     from src.persistence.db import Database
