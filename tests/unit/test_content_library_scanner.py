@@ -44,10 +44,12 @@ def sample_content_source():
     """Create a sample ContentSource for testing."""
     return ContentSource(
         title="Test Video",
-        file_path="/home/test/content/general/test.mp4",
+        file_path="/app/content/general/test.mp4",
         windows_obs_path="\\\\wsl.localhost\\Debian\\home\\test\\content\\general\\test.mp4",
         duration_sec=300,
         file_size_mb=100.0,
+        width=1920,
+        height=1080,
         source_attribution=SourceAttribution.MIT_OCW,
         license_type="CC BY-NC-SA 4.0",
         course_name="Test Course",
@@ -298,10 +300,12 @@ class TestUpdateLibraryStatistics:
         content_sources = [
             ContentSource(
                 title="MIT Video",
-                file_path="/test1.mp4",
-                windows_obs_path="\\\\test1.mp4",
+                file_path="/app/content/test1.mp4",
+                windows_obs_path="\\\\wsl.localhost\\Debian\\test1.mp4",
                 duration_sec=600,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Course",
@@ -315,10 +319,12 @@ class TestUpdateLibraryStatistics:
             ),
             ContentSource(
                 title="CS50 Video",
-                file_path="/test2.mp4",
-                windows_obs_path="\\\\test2.mp4",
+                file_path="/app/content/test2.mp4",
+                windows_obs_path="\\\\wsl.localhost\\Debian\\test2.mp4",
                 duration_sec=1200,
                 file_size_mb=200.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.CS50,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Course",
@@ -380,10 +386,12 @@ class TestUpdateLibraryStatistics:
         content_sources = [
             ContentSource(
                 title=f"Video {i}",
-                file_path=f"/test{i}.mp4",
-                windows_obs_path=f"\\\\test{i}.mp4",
+                file_path=f"/app/content/test{i}.mp4",
+                windows_obs_path=f"\\\\wsl.localhost\\Debian\\test{i}.mp4",
                 duration_sec=300,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.KHAN_ACADEMY,
                 license_type="CC BY-NC-SA",
                 course_name="Course",

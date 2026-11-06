@@ -1,0 +1,38 @@
+name: tests
+
+# Runs on every pull request and on every push to main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  src-tests:
+    name: src tests (tests/ folder, no live OBS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Tests marked "integration" need a live OBS (or the tower's content folders
+      # and database), so they are left out here. Everything else must pass.
+      # pytest.ini supplies the coverage floor.
+      - run: pytest tests -m "not integration"
+
+  playout-tests:
+    name: playout tests (stream tooling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # Several playout tests encode and probe short clips, so they need ffmpeg.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install -r requirements.txt pillow numpy opencv-python-headless
+      # -o addopts="" drops the src coverage options from pytest.ini, which do not apply here.
+      - run: pytest playout -o addopts=""

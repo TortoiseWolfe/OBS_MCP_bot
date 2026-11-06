@@ -269,7 +269,7 @@ class ContentScheduler:
                 # Wait for content to finish
                 await asyncio.sleep(duration_sec)
 
-                logger.info("content_playback_complete", file=content_file.name)
+                logger.info("content_playback_complete", file=content_file_name)
 
                 # Small delay for transition (< 2 seconds per FR-036)
                 await asyncio.sleep(0.5)

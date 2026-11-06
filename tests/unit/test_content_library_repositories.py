@@ -23,6 +23,7 @@ from src.models.content_library import (
     LicenseInfo,
     SourceAttribution,
 )
+from src.persistence.db import SCHEMA_SQL
 from src.persistence.repositories.content_library import (
     ContentLibraryRepository,
     ContentSourceRepository,
@@ -37,71 +38,9 @@ def test_db(tmp_path: Path):
     db_path = tmp_path / "test_content.db"
     conn = sqlite3.connect(db_path)
 
-    # Execute Tier 3 schema (from db.py SCHEMA_SQL)
-    conn.executescript("""
-        PRAGMA foreign_keys = ON;
-
-        CREATE TABLE IF NOT EXISTS license_info (
-            license_id TEXT PRIMARY KEY,
-            license_type TEXT NOT NULL UNIQUE,
-            source_name TEXT NOT NULL,
-            attribution_text TEXT NOT NULL,
-            license_url TEXT NOT NULL,
-            permits_commercial_use INTEGER NOT NULL CHECK(permits_commercial_use IN (0, 1)),
-            permits_modification INTEGER NOT NULL CHECK(permits_modification IN (0, 1)),
-            requires_attribution INTEGER NOT NULL CHECK(requires_attribution IN (0, 1)),
-            requires_share_alike INTEGER NOT NULL CHECK(requires_share_alike IN (0, 1)),
-            verified_date TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS content_sources (
-            source_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            file_path TEXT NOT NULL UNIQUE,
-            windows_obs_path TEXT NOT NULL,
-            duration_sec INTEGER NOT NULL CHECK(duration_sec >= 0),
-            file_size_mb REAL NOT NULL CHECK(file_size_mb > 0),
-            source_attribution TEXT NOT NULL CHECK(source_attribution IN ('MIT_OCW', 'CS50', 'KHAN_ACADEMY', 'BLENDER')),
-            license_type TEXT NOT NULL,
-            course_name TEXT NOT NULL,
-            source_url TEXT NOT NULL,
-            attribution_text TEXT NOT NULL,
-            age_rating TEXT NOT NULL CHECK(age_rating IN ('kids', 'adult', 'all')),
-            time_blocks TEXT NOT NULL,
-            priority INTEGER NOT NULL CHECK(priority BETWEEN 1 AND 10),
-            tags TEXT NOT NULL,
-            last_verified TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (license_type) REFERENCES license_info(license_type)
-        );
-
-        CREATE TABLE IF NOT EXISTS content_library (
-            library_id TEXT PRIMARY KEY,
-            total_videos INTEGER NOT NULL DEFAULT 0,
-            total_duration_sec INTEGER NOT NULL DEFAULT 0,
-            total_size_mb REAL NOT NULL DEFAULT 0.0,
-            last_scanned TEXT NOT NULL,
-            mit_ocw_count INTEGER NOT NULL DEFAULT 0,
-            cs50_count INTEGER NOT NULL DEFAULT 0,
-            khan_academy_count INTEGER NOT NULL DEFAULT 0,
-            blender_count INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS download_jobs (
-            job_id TEXT PRIMARY KEY,
-            source_name TEXT NOT NULL CHECK(source_name IN ('MIT_OCW', 'CS50', 'KHAN_ACADEMY')),
-            status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
-            started_at TEXT,
-            completed_at TEXT,
-            videos_downloaded INTEGER NOT NULL DEFAULT 0,
-            total_size_mb REAL NOT NULL DEFAULT 0.0,
-            error_message TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
+    # The real schema, so the fixture can never drift from db.py
+    conn.executescript(SCHEMA_SQL)
+    conn.execute("DELETE FROM license_info")  # SCHEMA_SQL seeds the default licenses; these tests start empty
     conn.commit()
     conn.close()
 
@@ -212,6 +151,8 @@ class TestContentSourceRepository:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\mit_ocw\\lec01.mp4",
             duration_sec=3000,
             file_size_mb=400.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="6.0001",
@@ -243,6 +184,8 @@ class TestContentSourceRepository:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\test\\video.mp4",
             duration_sec=100,
             file_size_mb=50.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="Test",
@@ -273,6 +216,8 @@ class TestContentSourceRepository:
                 windows_obs_path=f"\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\mit_{i}.mp4",
                 duration_sec=1000,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -301,6 +246,8 @@ class TestContentSourceRepository:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\kids.mp4",
             duration_sec=1000,
             file_size_mb=100.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="Test",
@@ -330,6 +277,8 @@ class TestContentSourceRepository:
                 windows_obs_path=f"\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\p{priority}.mp4",
                 duration_sec=1000,
                 file_size_mb=100.0,
+                width=1920,
+                height=1080,
                 source_attribution=SourceAttribution.MIT_OCW,
                 license_type="CC BY-NC-SA 4.0",
                 course_name="Test",
@@ -357,6 +306,8 @@ class TestContentSourceRepository:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\test.mp4",
             duration_sec=1000,
             file_size_mb=100.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="Test",
@@ -387,6 +338,8 @@ class TestContentSourceRepository:
             windows_obs_path="\\\\wsl.localhost\\Debian\\home\\turtle_wolfe\\repos\\OBS_bot\\content\\delete.mp4",
             duration_sec=1000,
             file_size_mb=100.0,
+            width=1920,
+            height=1080,
             source_attribution=SourceAttribution.MIT_OCW,
             license_type="CC BY-NC-SA 4.0",
             course_name="Test",

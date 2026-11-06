@@ -25,6 +25,11 @@ from ..models.content_library import (
 logger = structlog.get_logger()
 
 
+def _has_word(text: str, word: str) -> bool:
+    """True when `word` appears in `text` on its own, not inside a longer run of letters or digits."""
+    return re.search(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", text) is not None
+
+
 class MetadataExtractionError(Exception):
     """Raised when metadata extraction fails."""
 
@@ -364,9 +369,11 @@ class ContentMetadataManager:
         title_lower = title.lower()
 
         # Programming language tags
-        if any(lang in path_str or lang in title_lower for lang in ["python", "py"]):
+        # "py" and "js" count only as whole words ("py_intro", "intro-js"), never inside other
+        # words or folder names ("pytest", "happy", "jsdoc"), or any path under pytest's tmp dir would be tagged python
+        if "python" in path_str or "python" in title_lower or _has_word(path_str, "py") or _has_word(title_lower, "py"):
             tags.append("python")
-        if any(lang in path_str or lang in title_lower for lang in ["javascript", "js"]):
+        if "javascript" in path_str or "javascript" in title_lower or _has_word(path_str, "js") or _has_word(title_lower, "js"):
             tags.append("javascript")
         if "java" in path_str or "java" in title_lower:
             tags.append("java")
@@ -396,8 +403,8 @@ class ContentMetadataManager:
         if source == SourceAttribution.KHAN_ACADEMY:
             tags.append("interactive")
 
-        # Remove duplicates
-        tags = list(set(tags))
+        # Remove duplicates, keeping the order the tags were found in
+        tags = list(dict.fromkeys(tags))
 
         logger.debug("tags_generated", file=video_path.name, tags=tags)
 
