@@ -17,10 +17,12 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      # Tests marked "integration" need a live OBS (or the tower's content folders
-      # and database), so they are left out here. Everything else must pass.
+      # Only the tests marked "requires_obs" are left out: they talk to a live OBS over
+      # its websocket (run them on a machine with OBS up: pytest tests -m requires_obs).
+      # The other integration tests run here against a small content folder and
+      # database built in a temporary directory (tests/integration/conftest.py).
       # pytest.ini supplies the coverage floor.
-      - run: python -m pytest tests -m "not integration"
+      - run: python -m pytest tests -m "not requires_obs"
 
   playout-tests:
     name: playout tests (stream tooling)
