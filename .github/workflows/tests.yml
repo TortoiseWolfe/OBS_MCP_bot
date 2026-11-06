@@ -20,7 +20,7 @@ jobs:
       # Tests marked "integration" need a live OBS (or the tower's content folders
       # and database), so they are left out here. Everything else must pass.
       # pytest.ini supplies the coverage floor.
-      - run: pytest tests -m "not integration"
+      - run: python -m pytest tests -m "not integration"
 
   playout-tests:
     name: playout tests (stream tooling)
@@ -35,4 +35,4 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -r requirements.txt pillow numpy opencv-python-headless
       # -o addopts="" drops the src coverage options from pytest.ini, which do not apply here.
-      - run: pytest playout -o addopts=""
+      - run: python -m pytest playout -o addopts=""
