@@ -46,3 +46,7 @@ content/**/*.mp4
 # playout renders and logs
 playout/out/
 playout/logs/
+
+# graphify: local and regenerable. Rebuild with /graphify-init, or run `graphify update .` (AST-only, free).
+# NOT committed: graph.json, the cache and the wiki run to megabytes and delta-compress poorly.
+graphify-out/
