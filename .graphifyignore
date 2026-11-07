@@ -1,0 +1,18 @@
+# NEVER index our own generated output. This line is not optional.
+graphify-out/
+# `graphify install --project` writes these into the tree; unexcluded, the first scan indexes them as documents.
+.claude/skills/
+.claude/CLAUDE.md
+
+node_modules/
+.next/
+dist/
+build/
+coverage/
+storybook-static/
+.venv/
+*.lock
+package-lock.json
+pnpm-lock.yaml
+*.min.js
+*.map
